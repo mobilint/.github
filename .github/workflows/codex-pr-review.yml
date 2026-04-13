@@ -1,0 +1,185 @@
+name: Reusable Codex PR Review
+
+on:
+  workflow_call:
+
+jobs:
+  review:
+    runs-on:
+      group: codex
+      labels: codex-reviewer
+
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Checkout base repository
+        uses: actions/checkout@v5
+
+      - name: Install yq
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v yq >/dev/null 2>&1; then
+            sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+            sudo chmod +x /usr/local/bin/yq
+          fi
+
+      - name: Decide whether to run
+        id: gate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          EVENT_NAME="${{ github.event_name }}"
+          REPO="${{ github.repository }}"
+
+          run="false"
+          mode=""
+          pr_number=""
+          actor=""
+          comment_id=""
+
+          if [[ "$EVENT_NAME" == "pull_request_target" ]]; then
+            pr_number="${{ github.event.pull_request.number }}"
+            actor="${{ github.event.pull_request.user.login }}"
+            author_assoc="${{ github.event.pull_request.author_association }}"
+            is_draft="${{ github.event.pull_request.draft }}"
+
+            if [[ "$is_draft" == "true" ]]; then
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            if [[ ! -f .github/codex-reviewers.yml ]]; then
+              echo "Missing .github/codex-reviewers.yml"
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            allow_user="false"
+            if yq -e '.allowed_users[]' .github/codex-reviewers.yml >/dev/null 2>&1; then
+              if yq -r '.allowed_users[]' .github/codex-reviewers.yml | grep -Fxq "$actor"; then
+                allow_user="true"
+              fi
+            fi
+
+            allow_assoc="false"
+            case "$author_assoc" in
+              OWNER|MEMBER)
+                allow_assoc="true"
+                ;;
+            esac
+
+            if [[ "$allow_user" == "true" || "$allow_assoc" == "true" ]]; then
+              run="true"
+              mode="auto"
+            fi
+
+          elif [[ "$EVENT_NAME" == "issue_comment" ]]; then
+            if [[ "${{ github.event.issue.pull_request != null }}" != "true" ]]; then
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            pr_number="${{ github.event.issue.number }}"
+            actor="${{ github.event.comment.user.login }}"
+            author_assoc="${{ github.event.comment.author_association }}"
+            comment_id="${{ github.event.comment.id }}"
+
+            comment_body=$(cat <<'EOF'
+            ${{ github.event.comment.body }}
+            EOF
+            )
+
+            if ! grep -Eiq '(^|[[:space:]])@codex([[:space:][:punct:]]|$)' <<< "$comment_body"; then
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            if [[ ! -f .github/codex-reviewers.yml ]]; then
+              echo "Missing .github/codex-reviewers.yml"
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            allow_user="false"
+            if yq -e '.allowed_users[]' .github/codex-reviewers.yml >/dev/null 2>&1; then
+              if yq -r '.allowed_users[]' .github/codex-reviewers.yml | grep -Fxq "$actor"; then
+                allow_user="true"
+              fi
+            fi
+
+            allow_assoc="false"
+            case "$author_assoc" in
+              OWNER|MEMBER)
+                allow_assoc="true"
+                ;;
+            esac
+
+            if [[ "$allow_user" == "true" || "$allow_assoc" == "true" ]]; then
+              run="true"
+              mode="mention"
+            fi
+          fi
+
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+          echo "actor=$actor" >> "$GITHUB_OUTPUT"
+          echo "comment_id=$comment_id" >> "$GITHUB_OUTPUT"
+
+      - name: Start review comment
+        if: steps.gate.outputs.run == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.gate.outputs.pr_number }}
+          MODE: ${{ steps.gate.outputs.mode }}
+          ACTOR: ${{ steps.gate.outputs.actor }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$MODE" == "auto" ]]; then
+            BODY="👀 Codex review started on internal runner for @$ACTOR."
+          else
+            BODY="👀 Codex re-review started on internal runner for @$ACTOR."
+          fi
+
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$BODY"
+
+      - name: Run Codex review
+        if: steps.gate.outputs.run == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.gate.outputs.pr_number }}
+          MODE: ${{ steps.gate.outputs.mode }}
+          COMMENT_ID: ${{ steps.gate.outputs.comment_id }}
+        run: |
+          set -euo pipefail
+          chmod +x .github/scripts/run-codex-review.sh
+          .github/scripts/run-codex-review.sh
+
+      - name: Comment when skipped
+        if: steps.gate.outputs.run != 'true'
+        shell: bash
+        run: |
+          echo "Skipped: not an eligible internal PR or @codex request."
+
+      - name: Failure comment
+        if: failure() && steps.gate.outputs.run == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.gate.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "⚠️ Codex review failed on the internal runner."
