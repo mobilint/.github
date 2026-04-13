@@ -1,185 +1,263 @@
-name: Reusable Codex PR Review
+name: Codex Review Reusable
 
 on:
   workflow_call:
+    inputs:
+      review_on_member_pr_only:
+        description: Run automatic review only for PRs opened by org owners or members
+        required: false
+        type: boolean
+        default: true
+      post_untrusted_notice:
+        description: Whether to leave a notice comment for untrusted PRs
+        required: false
+        type: boolean
+        default: true
+      skip_draft_pr:
+        description: Skip draft PRs
+        required: false
+        type: boolean
+        default: true
+      max_files:
+        description: Soft limit for changed files passed to the review runner
+        required: false
+        type: number
+        default: 200
+      max_diff_chars:
+        description: Soft limit for diff size passed to the review runner
+        required: false
+        type: number
+        default: 200000
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: codex-review-${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   review:
+    if: github.event_name == 'pull_request' || github.event_name == 'issue_comment'
     runs-on:
       group: codex
       labels: codex-reviewer
-
-    permissions:
-      contents: read
-      pull-requests: write
-      issues: write
+    timeout-minutes: 30
 
     steps:
       - name: Checkout base repository
         uses: actions/checkout@v5
 
-      - name: Install yq
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! command -v yq >/dev/null 2>&1; then
-            sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-            sudo chmod +x /usr/local/bin/yq
-          fi
-
-      - name: Decide whether to run
-        id: gate
+      - name: Resolve event context
+        id: ctx
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
-          EVENT_NAME="${{ github.event_name }}"
-          REPO="${{ github.repository }}"
+          echo "event_name=${GITHUB_EVENT_NAME}" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "repo=${{ github.repository }}" >> "$GITHUB_OUTPUT"
+          echo "comment_id=" >> "$GITHUB_OUTPUT"
+          echo "commenter=" >> "$GITHUB_OUTPUT"
+          echo "commenter_association=" >> "$GITHUB_OUTPUT"
 
-          run="false"
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            echo "pr_number=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+            echo "pr_author=${{ github.event.pull_request.user.login }}" >> "$GITHUB_OUTPUT"
+            echo "pr_author_association=${{ github.event.pull_request.author_association }}" >> "$GITHUB_OUTPUT"
+            echo "pr_is_draft=${{ github.event.pull_request.draft }}" >> "$GITHUB_OUTPUT"
+            echo "comment_body=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          pr_url=$(jq -r '.issue.pull_request.url // empty' "$GITHUB_EVENT_PATH")
+          if [[ -z "${pr_url}" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=not_a_pr_comment" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          pr_meta=$(gh pr view "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --json author,authorAssociation,isDraft)
+
+          echo "pr_number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+          echo "pr_author=$(jq -r '.author.login' <<< "${pr_meta}")" >> "$GITHUB_OUTPUT"
+          echo "pr_author_association=$(jq -r '.authorAssociation' <<< "${pr_meta}")" >> "$GITHUB_OUTPUT"
+          echo "pr_is_draft=$(jq -r '.isDraft' <<< "${pr_meta}")" >> "$GITHUB_OUTPUT"
+          echo "commenter=${{ github.event.comment.user.login }}" >> "$GITHUB_OUTPUT"
+          echo "comment_id=${{ github.event.comment.id }}" >> "$GITHUB_OUTPUT"
+          echo "commenter_association=${{ github.event.comment.author_association }}" >> "$GITHUB_OUTPUT"
+
+          echo "comment_body<<EOF" >> "$GITHUB_OUTPUT"
+          jq -r '.comment.body // ""' "$GITHUB_EVENT_PATH" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Check trigger
+        id: trigger
+        if: steps.ctx.outputs.skip != 'true'
+        shell: bash
+        env:
+          COMMENT_BODY: ${{ steps.ctx.outputs.comment_body }}
+        run: |
+          set -euo pipefail
+
+          should_run=false
           mode=""
-          pr_number=""
-          actor=""
-          comment_id=""
 
-          if [[ "$EVENT_NAME" == "pull_request_target" ]]; then
-            pr_number="${{ github.event.pull_request.number }}"
-            actor="${{ github.event.pull_request.user.login }}"
-            author_assoc="${{ github.event.pull_request.author_association }}"
-            is_draft="${{ github.event.pull_request.draft }}"
-
-            if [[ "$is_draft" == "true" ]]; then
-              echo "run=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-
-            if [[ ! -f .github/codex-reviewers.yml ]]; then
-              echo "Missing .github/codex-reviewers.yml"
-              echo "run=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-
-            allow_user="false"
-            if yq -e '.allowed_users[]' .github/codex-reviewers.yml >/dev/null 2>&1; then
-              if yq -r '.allowed_users[]' .github/codex-reviewers.yml | grep -Fxq "$actor"; then
-                allow_user="true"
-              fi
-            fi
-
-            allow_assoc="false"
-            case "$author_assoc" in
-              OWNER|MEMBER)
-                allow_assoc="true"
-                ;;
-            esac
-
-            if [[ "$allow_user" == "true" || "$allow_assoc" == "true" ]]; then
-              run="true"
-              mode="auto"
-            fi
-
-          elif [[ "$EVENT_NAME" == "issue_comment" ]]; then
-            if [[ "${{ github.event.issue.pull_request != null }}" != "true" ]]; then
-              echo "run=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-
-            pr_number="${{ github.event.issue.number }}"
-            actor="${{ github.event.comment.user.login }}"
-            author_assoc="${{ github.event.comment.author_association }}"
-            comment_id="${{ github.event.comment.id }}"
-
-            comment_body=$(cat <<'EOF'
-            ${{ github.event.comment.body }}
-            EOF
-            )
-
-            if ! grep -Eiq '(^|[[:space:]])@codex([[:space:][:punct:]]|$)' <<< "$comment_body"; then
-              echo "run=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-
-            if [[ ! -f .github/codex-reviewers.yml ]]; then
-              echo "Missing .github/codex-reviewers.yml"
-              echo "run=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-
-            allow_user="false"
-            if yq -e '.allowed_users[]' .github/codex-reviewers.yml >/dev/null 2>&1; then
-              if yq -r '.allowed_users[]' .github/codex-reviewers.yml | grep -Fxq "$actor"; then
-                allow_user="true"
-              fi
-            fi
-
-            allow_assoc="false"
-            case "$author_assoc" in
-              OWNER|MEMBER)
-                allow_assoc="true"
-                ;;
-            esac
-
-            if [[ "$allow_user" == "true" || "$allow_assoc" == "true" ]]; then
-              run="true"
-              mode="mention"
-            fi
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            should_run=true
+            mode=auto
+          elif grep -Eiq '(^|[[:space:]])@codex([[:space:][:punct:]]|$)' <<< "${COMMENT_BODY}"; then
+            should_run=true
+            mode=mention
           fi
 
-          echo "run=$run" >> "$GITHUB_OUTPUT"
-          echo "mode=$mode" >> "$GITHUB_OUTPUT"
-          echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
-          echo "actor=$actor" >> "$GITHUB_OUTPUT"
-          echo "comment_id=$comment_id" >> "$GITHUB_OUTPUT"
+          echo "should_run=${should_run}" >> "$GITHUB_OUTPUT"
+          echo "mode=${mode}" >> "$GITHUB_OUTPUT"
 
-      - name: Start review comment
-        if: steps.gate.outputs.run == 'true'
+      - name: Check trusted association
+        id: trust
+        if: steps.ctx.outputs.skip != 'true' && steps.trigger.outputs.should_run == 'true'
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ steps.gate.outputs.pr_number }}
-          MODE: ${{ steps.gate.outputs.mode }}
-          ACTOR: ${{ steps.gate.outputs.actor }}
+          PR_AUTHOR_ASSOCIATION: ${{ steps.ctx.outputs.pr_author_association }}
+          COMMENTER_ASSOCIATION: ${{ steps.ctx.outputs.commenter_association }}
+          REVIEW_ON_MEMBER_PR_ONLY: ${{ inputs.review_on_member_pr_only }}
         run: |
           set -euo pipefail
 
-          if [[ "$MODE" == "auto" ]]; then
-            BODY="👀 Codex review started on internal runner for @$ACTOR."
-          else
-            BODY="👀 Codex re-review started on internal runner for @$ACTOR."
+          pr_author_trusted=false
+          commenter_trusted=true
+          pr_allowed=false
+
+          case "${PR_AUTHOR_ASSOCIATION}" in
+            OWNER|MEMBER)
+              pr_author_trusted=true
+              ;;
+          esac
+
+          if [[ "${GITHUB_EVENT_NAME}" == "issue_comment" ]]; then
+            commenter_trusted=false
+            case "${COMMENTER_ASSOCIATION}" in
+              OWNER|MEMBER)
+                commenter_trusted=true
+                ;;
+            esac
           fi
 
-          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$BODY"
+          if [[ "${REVIEW_ON_MEMBER_PR_ONLY}" == "true" ]]; then
+            pr_allowed="${pr_author_trusted}"
+          else
+            pr_allowed=true
+          fi
+
+          echo "pr_author_trusted=${pr_author_trusted}" >> "$GITHUB_OUTPUT"
+          echo "commenter_trusted=${commenter_trusted}" >> "$GITHUB_OUTPUT"
+          echo "pr_allowed=${pr_allowed}" >> "$GITHUB_OUTPUT"
+
+      - name: Leave notice for untrusted PR
+        if: >
+          steps.ctx.outputs.skip != 'true' &&
+          steps.trigger.outputs.should_run == 'true' &&
+          steps.trust.outputs.pr_allowed != 'true' &&
+          inputs.post_untrusted_notice
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh pr comment "${{ steps.ctx.outputs.pr_number }}" \
+            --repo "${{ steps.ctx.outputs.repo }}" \
+            --body "👀 Automatic Codex review runs only for organization owners and members."
+
+      - name: Announce draft skip
+        if: >
+          steps.ctx.outputs.skip != 'true' &&
+          steps.trigger.outputs.should_run == 'true' &&
+          steps.trust.outputs.pr_allowed == 'true' &&
+          inputs.skip_draft_pr &&
+          steps.ctx.outputs.pr_is_draft == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh pr comment "${{ steps.ctx.outputs.pr_number }}" \
+            --repo "${{ steps.ctx.outputs.repo }}" \
+            --body "📝 Skipping review because this PR is still in draft."
+
+      - name: Announce review start
+        if: >
+          steps.ctx.outputs.skip != 'true' &&
+          steps.trigger.outputs.should_run == 'true' &&
+          steps.trust.outputs.pr_allowed == 'true' &&
+          (!inputs.skip_draft_pr || steps.ctx.outputs.pr_is_draft != 'true') &&
+          (github.event_name != 'issue_comment' || steps.trust.outputs.commenter_trusted == 'true') &&
+          (github.event_name != 'issue_comment' || !contains(steps.ctx.outputs.commenter, '[bot]'))
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ steps.trigger.outputs.mode }}" == "auto" ]]; then
+            body="🤖 Starting Codex review for this PR. Looking through the changes now."
+          else
+            body="🤖 Received @codex. Re-running Codex review now."
+          fi
+
+          gh pr comment "${{ steps.ctx.outputs.pr_number }}" \
+            --repo "${{ steps.ctx.outputs.repo }}" \
+            --body "${body}"
 
       - name: Run Codex review
-        if: steps.gate.outputs.run == 'true'
+        if: >
+          steps.ctx.outputs.skip != 'true' &&
+          steps.trigger.outputs.should_run == 'true' &&
+          steps.trust.outputs.pr_allowed == 'true' &&
+          (!inputs.skip_draft_pr || steps.ctx.outputs.pr_is_draft != 'true') &&
+          (github.event_name != 'issue_comment' || steps.trust.outputs.commenter_trusted == 'true') &&
+          (github.event_name != 'issue_comment' || !contains(steps.ctx.outputs.commenter, '[bot]'))
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ steps.gate.outputs.pr_number }}
-          MODE: ${{ steps.gate.outputs.mode }}
-          COMMENT_ID: ${{ steps.gate.outputs.comment_id }}
+          REPO: ${{ steps.ctx.outputs.repo }}
+          PR_NUMBER: ${{ steps.ctx.outputs.pr_number }}
+          COMMENT_ID: ${{ steps.ctx.outputs.comment_id }}
+          TRIGGER_MODE: ${{ steps.trigger.outputs.mode }}
+          MAX_FILES: ${{ inputs.max_files }}
+          MAX_DIFF_CHARS: ${{ inputs.max_diff_chars }}
         run: |
           set -euo pipefail
-          chmod +x .github/scripts/run-codex-review.sh
-          .github/scripts/run-codex-review.sh
 
-      - name: Comment when skipped
-        if: steps.gate.outputs.run != 'true'
-        shell: bash
-        run: |
-          echo "Skipped: not an eligible internal PR or @codex request."
+          script_path=.github/scripts/run-codex-review.sh
+          if [[ ! -f "${script_path}" ]]; then
+            echo "Missing ${script_path} in the caller repository."
+            exit 1
+          fi
 
-      - name: Failure comment
-        if: failure() && steps.gate.outputs.run == 'true'
+          chmod +x "${script_path}"
+          "${script_path}"
+
+      - name: Post failure note
+        if: >
+          failure() &&
+          steps.ctx.outputs.skip != 'true' &&
+          steps.trigger.outputs.should_run == 'true' &&
+          steps.trust.outputs.pr_allowed == 'true' &&
+          (!inputs.skip_draft_pr || steps.ctx.outputs.pr_is_draft != 'true') &&
+          (github.event_name != 'issue_comment' || steps.trust.outputs.commenter_trusted == 'true') &&
+          (github.event_name != 'issue_comment' || !contains(steps.ctx.outputs.commenter, '[bot]'))
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ steps.gate.outputs.pr_number }}
         run: |
           set -euo pipefail
-          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "⚠️ Codex review failed on the internal runner."
+          gh pr comment "${{ steps.ctx.outputs.pr_number }}" \
+            --repo "${{ steps.ctx.outputs.repo }}" \
+            --body "⚠️ Codex review did not complete successfully."
