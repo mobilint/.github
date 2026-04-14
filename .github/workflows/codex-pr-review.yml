@@ -44,17 +44,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  review:
+  gate:
     if: github.event_name == 'pull_request' || github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment'
-    runs-on:
-      group: codex
-      labels: codex-reviewer
-    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      event_name: ${{ steps.ctx.outputs.event_name }}
+      repo: ${{ steps.ctx.outputs.repo }}
+      pr_number: ${{ steps.ctx.outputs.pr_number }}
+      commenter: ${{ steps.ctx.outputs.commenter }}
+      pr_is_draft: ${{ steps.ctx.outputs.pr_is_draft }}
+      should_run: ${{ steps.trigger.outputs.should_run }}
+      mode: ${{ steps.trigger.outputs.mode }}
+      pr_allowed: ${{ steps.trust.outputs.pr_allowed }}
+      commenter_trusted: ${{ steps.trust.outputs.commenter_trusted }}
+      run_local: ${{ steps.fallback.outputs.run_local }}
+      fallback_reason: ${{ steps.fallback.outputs.reason }}
 
     steps:
-      - name: Checkout base repository
-        uses: actions/checkout@v5
-
       - name: Resolve event context
         id: ctx
         shell: bash
@@ -108,7 +115,7 @@ jobs:
 
           echo "pr_number=${pr_number}" >> "$GITHUB_OUTPUT"
           echo "pr_author=$(jq -r '.author.login' <<< "${pr_meta}")" >> "$GITHUB_OUTPUT"
-          echo "pr_author_association=$(jq -r '.author_association // \"\"' <<< "${pr_issue_meta}")" >> "$GITHUB_OUTPUT"
+          echo "pr_author_association=$(jq -r '.author_association // ""' <<< "${pr_issue_meta}")" >> "$GITHUB_OUTPUT"
           echo "pr_is_draft=$(jq -r '.isDraft' <<< "${pr_meta}")" >> "$GITHUB_OUTPUT"
           echo "pr_head_sha=$(jq -r '.headRefOid // ""' <<< "${pr_meta}")" >> "$GITHUB_OUTPUT"
           echo "pr_event_time=$(jq -r '.updatedAt // ""' <<< "${pr_meta}")" >> "$GITHUB_OUTPUT"
@@ -396,39 +403,40 @@ jobs:
             --repo "${{ steps.ctx.outputs.repo }}" \
             --body "${body}"
 
+  run-review:
+    needs: gate
+    if: needs.gate.outputs.run_local == 'true'
+    runs-on:
+      group: codex
+      labels: codex-reviewer
+    timeout-minutes: 45
+
+    steps:
       - name: Run Codex review
-        if: >
-          steps.ctx.outputs.skip != 'true' &&
-          steps.trigger.outputs.should_run == 'true' &&
-          steps.trust.outputs.pr_allowed == 'true' &&
-          (!inputs.skip_draft_pr || steps.ctx.outputs.pr_is_draft != 'true') &&
-          steps.fallback.outputs.run_local == 'true' &&
-          (github.event_name == 'pull_request' || steps.trust.outputs.commenter_trusted == 'true') &&
-          (github.event_name == 'pull_request' || !contains(steps.ctx.outputs.commenter, '[bot]'))
         uses: mobilint/codex-review-action@main
         with:
-          repo: ${{ steps.ctx.outputs.repo }}
-          pr_number: ${{ steps.ctx.outputs.pr_number }}
-          event_name: ${{ github.event_name }}
-          commenter: ${{ steps.ctx.outputs.commenter }}
+          repo: ${{ needs.gate.outputs.repo }}
+          pr_number: ${{ needs.gate.outputs.pr_number }}
+          event_name: ${{ needs.gate.outputs.event_name }}
+          commenter: ${{ needs.gate.outputs.commenter }}
           max_files: ${{ inputs.max_files }}
           max_diff_chars: ${{ inputs.max_diff_chars }}
 
+  post-failure:
+    needs:
+      - gate
+      - run-review
+    if: always() && needs.gate.outputs.run_local == 'true' && needs.run-review.result == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
       - name: Post failure note
-        if: >
-          failure() &&
-          steps.ctx.outputs.skip != 'true' &&
-          steps.trigger.outputs.should_run == 'true' &&
-          steps.trust.outputs.pr_allowed == 'true' &&
-          (!inputs.skip_draft_pr || steps.ctx.outputs.pr_is_draft != 'true') &&
-          steps.fallback.outputs.run_local == 'true' &&
-          (github.event_name == 'pull_request' || steps.trust.outputs.commenter_trusted == 'true') &&
-          (github.event_name == 'pull_request' || !contains(steps.ctx.outputs.commenter, '[bot]'))
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh pr comment "${{ steps.ctx.outputs.pr_number }}" \
-            --repo "${{ steps.ctx.outputs.repo }}" \
+          gh pr comment "${{ needs.gate.outputs.pr_number }}" \
+            --repo "${{ needs.gate.outputs.repo }}" \
             --body "⚠️ Codex review did not complete successfully."
