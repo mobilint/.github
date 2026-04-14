@@ -87,7 +87,7 @@ jobs:
           commenter_login="${{ github.event.comment.user.login }}"
           comment_id="${{ github.event.comment.id }}"
           commenter_association="${{ github.event.comment.author_association }}"
-          comment_body_value="$(jq -r '.comment.body // \"\"' "$GITHUB_EVENT_PATH")"
+          comment_body_value="$(jq -r '.comment.body // ""' "$GITHUB_EVENT_PATH")"
 
           if [[ "${GITHUB_EVENT_NAME}" == "issue_comment" ]]; then
             pr_url=$(jq -r '.issue.pull_request.url // empty' "$GITHUB_EVENT_PATH")
