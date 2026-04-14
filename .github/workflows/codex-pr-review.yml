@@ -148,7 +148,12 @@ jobs:
         if: steps.ctx.outputs.skip != 'true' && steps.trigger.outputs.should_run == 'true'
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ steps.ctx.outputs.repo }}
+          TRIGGER_MODE: ${{ steps.trigger.outputs.mode }}
           PR_AUTHOR_ASSOCIATION: ${{ steps.ctx.outputs.pr_author_association }}
+          PR_AUTHOR: ${{ steps.ctx.outputs.pr_author }}
+          COMMENTER: ${{ steps.ctx.outputs.commenter }}
           COMMENTER_ASSOCIATION: ${{ steps.ctx.outputs.commenter_association }}
           REVIEW_ON_MEMBER_PR_ONLY: ${{ inputs.review_on_member_pr_only }}
         run: |
@@ -164,6 +169,18 @@ jobs:
               ;;
           esac
 
+          # Some GitHub event payloads surface author_association inconsistently.
+          # Fall back to checking whether the PR author actually has repository access.
+          if [[ "${pr_author_trusted}" != "true" && -n "${PR_AUTHOR}" ]]; then
+            set +e
+            gh api "/repos/${REPO}/collaborators/${PR_AUTHOR}/permission" >/dev/null 2>&1
+            collaborator_check_exit=$?
+            set -e
+            if [[ ${collaborator_check_exit} -eq 0 ]]; then
+              pr_author_trusted=true
+            fi
+          fi
+
           if [[ "${GITHUB_EVENT_NAME}" == "issue_comment" || "${GITHUB_EVENT_NAME}" == "pull_request_review_comment" ]]; then
             commenter_trusted=false
             case "${COMMENTER_ASSOCIATION}" in
@@ -173,12 +190,15 @@ jobs:
             esac
           fi
 
-          if [[ "${REVIEW_ON_MEMBER_PR_ONLY}" == "true" ]]; then
+          if [[ "${TRIGGER_MODE}" == "mention" ]]; then
+            pr_allowed="${commenter_trusted}"
+          elif [[ "${REVIEW_ON_MEMBER_PR_ONLY}" == "true" ]]; then
             pr_allowed="${pr_author_trusted}"
           else
             pr_allowed=true
           fi
 
+          echo "trust_debug pr_author=${PR_AUTHOR} pr_author_association=${PR_AUTHOR_ASSOCIATION} commenter=${COMMENTER} commenter_association=${COMMENTER_ASSOCIATION} mode=${TRIGGER_MODE}" >&2
           echo "pr_author_trusted=${pr_author_trusted}" >> "$GITHUB_OUTPUT"
           echo "commenter_trusted=${commenter_trusted}" >> "$GITHUB_OUTPUT"
           echo "pr_allowed=${pr_allowed}" >> "$GITHUB_OUTPUT"
