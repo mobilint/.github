@@ -38,6 +38,11 @@ on:
         required: false
         type: boolean
         default: false
+      sandbox_strategy:
+        description: Codex sandbox strategy on the self-hosted runner (auto or unsandboxed)
+        required: false
+        type: string
+        default: auto
 
 permissions:
   contents: read
@@ -452,6 +457,7 @@ jobs:
           commenter: ${{ needs.gate.outputs.commenter }}
           max_files: ${{ inputs.max_files }}
           max_diff_chars: ${{ inputs.max_diff_chars }}
+          sandbox_strategy: ${{ inputs.sandbox_strategy }}
 
   post-failure:
     needs:
