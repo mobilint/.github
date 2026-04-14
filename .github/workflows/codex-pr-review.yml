@@ -45,7 +45,7 @@ concurrency:
 
 jobs:
   review:
-    if: github.event_name == 'pull_request' || github.event_name == 'issue_comment'
+    if: github.event_name == 'pull_request' || github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment'
     runs-on:
       group: codex
       labels: codex-reviewer
@@ -83,29 +83,40 @@ jobs:
             exit 0
           fi
 
-          pr_url=$(jq -r '.issue.pull_request.url // empty' "$GITHUB_EVENT_PATH")
-          if [[ -z "${pr_url}" ]]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "skip_reason=not_a_pr_comment" >> "$GITHUB_OUTPUT"
-            exit 0
+          pr_number=""
+          commenter_login="${{ github.event.comment.user.login }}"
+          comment_id="${{ github.event.comment.id }}"
+          commenter_association="${{ github.event.comment.author_association }}"
+          comment_body_value="$(jq -r '.comment.body // \"\"' "$GITHUB_EVENT_PATH")"
+
+          if [[ "${GITHUB_EVENT_NAME}" == "issue_comment" ]]; then
+            pr_url=$(jq -r '.issue.pull_request.url // empty' "$GITHUB_EVENT_PATH")
+            if [[ -z "${pr_url}" ]]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "skip_reason=not_a_pr_comment" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            pr_number="${{ github.event.issue.number }}"
+          else
+            pr_number="${{ github.event.pull_request.number }}"
           fi
 
-          pr_meta=$(gh pr view "${{ github.event.issue.number }}" \
+          pr_meta=$(gh pr view "${pr_number}" \
             --repo "${{ github.repository }}" \
             --json author,authorAssociation,isDraft,headRefOid,updatedAt)
 
-          echo "pr_number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+          echo "pr_number=${pr_number}" >> "$GITHUB_OUTPUT"
           echo "pr_author=$(jq -r '.author.login' <<< "${pr_meta}")" >> "$GITHUB_OUTPUT"
           echo "pr_author_association=$(jq -r '.authorAssociation' <<< "${pr_meta}")" >> "$GITHUB_OUTPUT"
           echo "pr_is_draft=$(jq -r '.isDraft' <<< "${pr_meta}")" >> "$GITHUB_OUTPUT"
           echo "pr_head_sha=$(jq -r '.headRefOid // ""' <<< "${pr_meta}")" >> "$GITHUB_OUTPUT"
           echo "pr_event_time=$(jq -r '.updatedAt // ""' <<< "${pr_meta}")" >> "$GITHUB_OUTPUT"
-          echo "commenter=${{ github.event.comment.user.login }}" >> "$GITHUB_OUTPUT"
-          echo "comment_id=${{ github.event.comment.id }}" >> "$GITHUB_OUTPUT"
-          echo "commenter_association=${{ github.event.comment.author_association }}" >> "$GITHUB_OUTPUT"
+          echo "commenter=${commenter_login}" >> "$GITHUB_OUTPUT"
+          echo "comment_id=${comment_id}" >> "$GITHUB_OUTPUT"
+          echo "commenter_association=${commenter_association}" >> "$GITHUB_OUTPUT"
 
           echo "comment_body<<EOF" >> "$GITHUB_OUTPUT"
-          jq -r '.comment.body // ""' "$GITHUB_EVENT_PATH" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "${comment_body_value}" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Check trigger
@@ -152,7 +163,7 @@ jobs:
               ;;
           esac
 
-          if [[ "${GITHUB_EVENT_NAME}" == "issue_comment" ]]; then
+          if [[ "${GITHUB_EVENT_NAME}" == "issue_comment" || "${GITHUB_EVENT_NAME}" == "pull_request_review_comment" ]]; then
             commenter_trusted=false
             case "${COMMENTER_ASSOCIATION}" in
               OWNER|MEMBER|COLLABORATOR)
@@ -226,8 +237,8 @@ jobs:
           steps.trigger.outputs.should_run == 'true' &&
           steps.trust.outputs.pr_allowed == 'true' &&
           (!inputs.skip_draft_pr || steps.ctx.outputs.pr_is_draft != 'true') &&
-          (github.event_name != 'issue_comment' || steps.trust.outputs.commenter_trusted == 'true') &&
-          (github.event_name != 'issue_comment' || !contains(steps.ctx.outputs.commenter, '[bot]'))
+          (github.event_name == 'pull_request' || steps.trust.outputs.commenter_trusted == 'true') &&
+          (github.event_name == 'pull_request' || !contains(steps.ctx.outputs.commenter, '[bot]'))
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -342,8 +353,8 @@ jobs:
           steps.trust.outputs.pr_allowed == 'true' &&
           (!inputs.skip_draft_pr || steps.ctx.outputs.pr_is_draft != 'true') &&
           steps.fallback.outputs.run_local == 'true' &&
-          (github.event_name != 'issue_comment' || steps.trust.outputs.commenter_trusted == 'true') &&
-          (github.event_name != 'issue_comment' || !contains(steps.ctx.outputs.commenter, '[bot]'))
+          (github.event_name == 'pull_request' || steps.trust.outputs.commenter_trusted == 'true') &&
+          (github.event_name == 'pull_request' || !contains(steps.ctx.outputs.commenter, '[bot]'))
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -371,8 +382,8 @@ jobs:
           steps.trust.outputs.pr_allowed == 'true' &&
           (!inputs.skip_draft_pr || steps.ctx.outputs.pr_is_draft != 'true') &&
           steps.fallback.outputs.run_local == 'true' &&
-          (github.event_name != 'issue_comment' || steps.trust.outputs.commenter_trusted == 'true') &&
-          (github.event_name != 'issue_comment' || !contains(steps.ctx.outputs.commenter, '[bot]'))
+          (github.event_name == 'pull_request' || steps.trust.outputs.commenter_trusted == 'true') &&
+          (github.event_name == 'pull_request' || !contains(steps.ctx.outputs.commenter, '[bot]'))
         uses: mobilint/codex-review-action@main
         with:
           repo: ${{ steps.ctx.outputs.repo }}
@@ -390,8 +401,8 @@ jobs:
           steps.trust.outputs.pr_allowed == 'true' &&
           (!inputs.skip_draft_pr || steps.ctx.outputs.pr_is_draft != 'true') &&
           steps.fallback.outputs.run_local == 'true' &&
-          (github.event_name != 'issue_comment' || steps.trust.outputs.commenter_trusted == 'true') &&
-          (github.event_name != 'issue_comment' || !contains(steps.ctx.outputs.commenter, '[bot]'))
+          (github.event_name == 'pull_request' || steps.trust.outputs.commenter_trusted == 'true') &&
+          (github.event_name == 'pull_request' || !contains(steps.ctx.outputs.commenter, '[bot]'))
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
