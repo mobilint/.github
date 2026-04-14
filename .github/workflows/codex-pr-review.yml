@@ -53,7 +53,9 @@ concurrency:
 
 jobs:
   gate:
-    if: github.event_name == 'pull_request' || github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment'
+    if: >
+      github.repository_owner == 'mobilint' &&
+      (github.event_name == 'pull_request' || github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
