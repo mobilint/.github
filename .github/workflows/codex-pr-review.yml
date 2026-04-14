@@ -396,7 +396,7 @@ jobs:
               body="🤖 No official Codex review showed up within ${{ inputs.official_review_wait_minutes }} minutes, so the self-hosted reviewer is taking over now."
             fi
           else
-            body="🤖 Received @codex-mobilint. Re-running Codex review now."
+            body="🤖 Received @codex-mobilint. The self-hosted Codex agent is responding now."
           fi
 
           gh pr comment "${{ steps.ctx.outputs.pr_number }}" \
@@ -418,6 +418,7 @@ jobs:
           repo: ${{ needs.gate.outputs.repo }}
           pr_number: ${{ needs.gate.outputs.pr_number }}
           event_name: ${{ needs.gate.outputs.event_name }}
+          mode: ${{ needs.gate.outputs.mode }}
           commenter: ${{ needs.gate.outputs.commenter }}
           max_files: ${{ inputs.max_files }}
           max_diff_chars: ${{ inputs.max_diff_chars }}
