@@ -154,7 +154,7 @@ jobs:
               should_run=true
               mode=auto
             fi
-          elif grep -Eiq '(^|[[:space:]])@codex-mobilint([[:space:][:punct:]]|$)' <<< "${COMMENT_BODY}"; then
+          elif grep -Eiq '(^|[[:space:]])@mobilint-review([[:space:][:punct:]]|$)' <<< "${COMMENT_BODY}"; then
             should_run=true
             mode=mention
           fi
@@ -424,7 +424,7 @@ jobs:
               body="🤖 No official Codex review showed up within ${{ inputs.official_review_wait_minutes }} minutes, so the self-hosted reviewer is taking over now."
             fi
           else
-            body="🤖 Received @codex-mobilint. The self-hosted Codex agent is responding now."
+            body="🤖 Received @mobilint-review. The self-hosted Codex agent is responding now."
           fi
 
           gh pr comment "${{ steps.ctx.outputs.pr_number }}" \
