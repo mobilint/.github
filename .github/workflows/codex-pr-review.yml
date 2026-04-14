@@ -33,6 +33,11 @@ on:
         required: false
         type: number
         default: 5
+      review_on_pr_synchronize:
+        description: Run automatic review when new commits are pushed to an existing PR
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -136,6 +141,8 @@ jobs:
         shell: bash
         env:
           COMMENT_BODY: ${{ steps.ctx.outputs.comment_body }}
+          EVENT_ACTION: ${{ github.event.action }}
+          REVIEW_ON_PR_SYNCHRONIZE: ${{ inputs.review_on_pr_synchronize }}
         run: |
           set -euo pipefail
 
@@ -143,8 +150,10 @@ jobs:
           mode=""
 
           if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-            should_run=true
-            mode=auto
+            if [[ "${EVENT_ACTION}" != "synchronize" || "${REVIEW_ON_PR_SYNCHRONIZE}" == "true" ]]; then
+              should_run=true
+              mode=auto
+            fi
           elif grep -Eiq '(^|[[:space:]])@codex-mobilint([[:space:][:punct:]]|$)' <<< "${COMMENT_BODY}"; then
             should_run=true
             mode=mention
