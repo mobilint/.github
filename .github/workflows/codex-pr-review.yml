@@ -296,7 +296,7 @@ jobs:
             exit 0
           fi
 
-          reviewer_regex='^chatgpt-codex-connect(or|er)(\[bot\])?$'
+          official_bot_login='chatgpt-codex-connector[bot]'
           limit_phrase='codex usage limits have been reached for code reviews.'
           credits_phrase='credits must be used to enable repository wide code reviews.'
 
@@ -309,13 +309,13 @@ jobs:
 
           official_review_found=$(
             jq -r \
-              --arg regex "${reviewer_regex}" \
+              --arg login "${official_bot_login}" \
               --arg head "${PR_HEAD_SHA}" \
               --arg event_time "${PR_EVENT_TIME}" \
               --arg limit "${limit_phrase}" \
               --arg credits "${credits_phrase}" '
                 any(.[];
-                  ((.user.login // "") | test($regex; "i")) and
+                  (((.user.login // "") | ascii_downcase) == $login) and
                   (($event_time == "") or ((.submitted_at // "") >= $event_time)) and
                   (($head == "") or ((.commit_id // "") == $head)) and
                   (
@@ -328,13 +328,13 @@ jobs:
 
           official_limit_review=$(
             jq -r \
-              --arg regex "${reviewer_regex}" \
+              --arg login "${official_bot_login}" \
               --arg head "${PR_HEAD_SHA}" \
               --arg event_time "${PR_EVENT_TIME}" \
               --arg limit "${limit_phrase}" \
               --arg credits "${credits_phrase}" '
                 any(.[];
-                  ((.user.login // "") | test($regex; "i")) and
+                  (((.user.login // "") | ascii_downcase) == $login) and
                   (($event_time == "") or ((.submitted_at // "") >= $event_time)) and
                   (($head == "") or ((.commit_id // "") == $head)) and
                   (
@@ -347,12 +347,12 @@ jobs:
 
           official_limit_comment=$(
             jq -r \
-              --arg regex "${reviewer_regex}" \
+              --arg login "${official_bot_login}" \
               --arg event_time "${PR_EVENT_TIME}" \
               --arg limit "${limit_phrase}" \
               --arg credits "${credits_phrase}" '
                 any(.[];
-                  ((.user.login // "") | test($regex; "i")) and
+                  (((.user.login // "") | ascii_downcase) == $login) and
                   (($event_time == "") or ((.created_at // "") >= $event_time)) and
                   (
                     ((.body // "") | ascii_downcase | contains($limit)) or
@@ -364,10 +364,10 @@ jobs:
 
           official_thumbsup_reaction=$(
             jq -r \
-              --arg regex "${reviewer_regex}" \
+              --arg login "${official_bot_login}" \
               --arg event_time "${PR_EVENT_TIME}" '
                 any(.[];
-                  ((.user.login // "") | test($regex; "i")) and
+                  (((.user.login // "") | ascii_downcase) == $login) and
                   ((.content // "") == "+1") and
                   (($event_time == "") or ((.created_at // "") >= $event_time))
                 )
