@@ -28,6 +28,11 @@ on:
         required: false
         type: number
         default: 200000
+      official_review_wait_minutes:
+        description: Minutes to wait for the official Codex review before running the self-hosted fallback
+        required: false
+        type: number
+        default: 10
 
 permissions:
   contents: read
@@ -44,7 +49,7 @@ jobs:
     runs-on:
       group: codex
       labels: codex-reviewer
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Checkout base repository
@@ -64,12 +69,16 @@ jobs:
           echo "comment_id=" >> "$GITHUB_OUTPUT"
           echo "commenter=" >> "$GITHUB_OUTPUT"
           echo "commenter_association=" >> "$GITHUB_OUTPUT"
+          echo "pr_head_sha=" >> "$GITHUB_OUTPUT"
+          echo "pr_event_time=" >> "$GITHUB_OUTPUT"
 
           if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
             echo "pr_number=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
             echo "pr_author=${{ github.event.pull_request.user.login }}" >> "$GITHUB_OUTPUT"
             echo "pr_author_association=${{ github.event.pull_request.author_association }}" >> "$GITHUB_OUTPUT"
             echo "pr_is_draft=${{ github.event.pull_request.draft }}" >> "$GITHUB_OUTPUT"
+            echo "pr_head_sha=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+            echo "pr_event_time=${{ github.event.pull_request.updated_at }}" >> "$GITHUB_OUTPUT"
             echo "comment_body=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -83,12 +92,14 @@ jobs:
 
           pr_meta=$(gh pr view "${{ github.event.issue.number }}" \
             --repo "${{ github.repository }}" \
-            --json author,authorAssociation,isDraft)
+            --json author,authorAssociation,isDraft,headRefOid,updatedAt)
 
           echo "pr_number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
           echo "pr_author=$(jq -r '.author.login' <<< "${pr_meta}")" >> "$GITHUB_OUTPUT"
           echo "pr_author_association=$(jq -r '.authorAssociation' <<< "${pr_meta}")" >> "$GITHUB_OUTPUT"
           echo "pr_is_draft=$(jq -r '.isDraft' <<< "${pr_meta}")" >> "$GITHUB_OUTPUT"
+          echo "pr_head_sha=$(jq -r '.headRefOid // ""' <<< "${pr_meta}")" >> "$GITHUB_OUTPUT"
+          echo "pr_event_time=$(jq -r '.updatedAt // ""' <<< "${pr_meta}")" >> "$GITHUB_OUTPUT"
           echo "commenter=${{ github.event.comment.user.login }}" >> "$GITHUB_OUTPUT"
           echo "comment_id=${{ github.event.comment.id }}" >> "$GITHUB_OUTPUT"
           echo "commenter_association=${{ github.event.comment.author_association }}" >> "$GITHUB_OUTPUT"
@@ -112,7 +123,7 @@ jobs:
           if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
             should_run=true
             mode=auto
-          elif grep -Eiq '(^|[[:space:]])@codex([[:space:][:punct:]]|$)' <<< "${COMMENT_BODY}"; then
+          elif grep -Eiq '(^|[[:space:]])@codex-mobilint([[:space:][:punct:]]|$)' <<< "${COMMENT_BODY}"; then
             should_run=true
             mode=mention
           fi
@@ -136,7 +147,7 @@ jobs:
           pr_allowed=false
 
           case "${PR_AUTHOR_ASSOCIATION}" in
-            OWNER|MEMBER)
+            OWNER|MEMBER|COLLABORATOR)
               pr_author_trusted=true
               ;;
           esac
@@ -144,7 +155,7 @@ jobs:
           if [[ "${GITHUB_EVENT_NAME}" == "issue_comment" ]]; then
             commenter_trusted=false
             case "${COMMENTER_ASSOCIATION}" in
-              OWNER|MEMBER)
+              OWNER|MEMBER|COLLABORATOR)
                 commenter_trusted=true
                 ;;
             esac
@@ -173,7 +184,7 @@ jobs:
           set -euo pipefail
           gh pr comment "${{ steps.ctx.outputs.pr_number }}" \
             --repo "${{ steps.ctx.outputs.repo }}" \
-            --body "👀 Automatic Codex review runs only for organization owners and members."
+            --body "👀 Automatic Codex review runs only for trusted organization members or repository collaborators."
 
       - name: Announce draft skip
         if: >
@@ -191,31 +202,25 @@ jobs:
             --repo "${{ steps.ctx.outputs.repo }}" \
             --body "📝 Skipping review because this PR is still in draft."
 
-      - name: Announce review start
+      - name: Wait for official Codex review
         if: >
+          github.event_name == 'pull_request' &&
           steps.ctx.outputs.skip != 'true' &&
           steps.trigger.outputs.should_run == 'true' &&
+          steps.trigger.outputs.mode == 'auto' &&
           steps.trust.outputs.pr_allowed == 'true' &&
-          (!inputs.skip_draft_pr || steps.ctx.outputs.pr_is_draft != 'true') &&
-          (github.event_name != 'issue_comment' || steps.trust.outputs.commenter_trusted == 'true') &&
-          (github.event_name != 'issue_comment' || !contains(steps.ctx.outputs.commenter, '[bot]'))
+          (!inputs.skip_draft_pr || steps.ctx.outputs.pr_is_draft != 'true')
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          WAIT_MINUTES: ${{ inputs.official_review_wait_minutes }}
         run: |
           set -euo pipefail
+          wait_seconds=$(( WAIT_MINUTES * 60 ))
+          echo "Waiting ${WAIT_MINUTES} minute(s) for official Codex review before running self-hosted fallback."
+          sleep "${wait_seconds}"
 
-          if [[ "${{ steps.trigger.outputs.mode }}" == "auto" ]]; then
-            body="🤖 Starting Codex review for this PR. Looking through the changes now."
-          else
-            body="🤖 Received @codex. Re-running Codex review now."
-          fi
-
-          gh pr comment "${{ steps.ctx.outputs.pr_number }}" \
-            --repo "${{ steps.ctx.outputs.repo }}" \
-            --body "${body}"
-
-      - name: Run Codex review
+      - name: Decide fallback execution
+        id: fallback
         if: >
           steps.ctx.outputs.skip != 'true' &&
           steps.trigger.outputs.should_run == 'true' &&
@@ -228,21 +233,154 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ steps.ctx.outputs.repo }}
           PR_NUMBER: ${{ steps.ctx.outputs.pr_number }}
-          COMMENT_ID: ${{ steps.ctx.outputs.comment_id }}
+          PR_HEAD_SHA: ${{ steps.ctx.outputs.pr_head_sha }}
+          PR_EVENT_TIME: ${{ steps.ctx.outputs.pr_event_time }}
           TRIGGER_MODE: ${{ steps.trigger.outputs.mode }}
-          MAX_FILES: ${{ inputs.max_files }}
-          MAX_DIFF_CHARS: ${{ inputs.max_diff_chars }}
         run: |
           set -euo pipefail
 
-          script_path=.github/scripts/run-codex-review.sh
-          if [[ ! -f "${script_path}" ]]; then
-            echo "Missing ${script_path} in the caller repository."
-            exit 1
+          if [[ "${TRIGGER_MODE}" != "auto" ]]; then
+            echo "run_local=true" >> "$GITHUB_OUTPUT"
+            echo "reason=mention" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
-          chmod +x "${script_path}"
-          "${script_path}"
+          reviewer_regex='^chatgpt-codex-connect(or|er)(\[bot\])?$'
+          limit_phrase='codex usage limits have been reached for code reviews.'
+          credits_phrase='credits must be used to enable repository wide code reviews.'
+
+          gh api "/repos/${REPO}/pulls/${PR_NUMBER}/reviews?per_page=100" > reviews.json
+          gh api "/repos/${REPO}/issues/${PR_NUMBER}/comments?per_page=100" > comments.json
+
+          official_review_found=$(
+            jq -r \
+              --arg regex "${reviewer_regex}" \
+              --arg head "${PR_HEAD_SHA}" \
+              --arg event_time "${PR_EVENT_TIME}" \
+              --arg limit "${limit_phrase}" \
+              --arg credits "${credits_phrase}" '
+                any(.[];
+                  ((.user.login // "") | test($regex; "i")) and
+                  (($event_time == "") or ((.submitted_at // "") >= $event_time)) and
+                  (($head == "") or ((.commit_id // "") == $head)) and
+                  (
+                    (((.body // "") | ascii_downcase | contains($limit)) or
+                    ((.body // "") | ascii_downcase | contains($credits))) | not
+                  )
+                )
+              ' reviews.json
+          )
+
+          official_limit_review=$(
+            jq -r \
+              --arg regex "${reviewer_regex}" \
+              --arg head "${PR_HEAD_SHA}" \
+              --arg event_time "${PR_EVENT_TIME}" \
+              --arg limit "${limit_phrase}" \
+              --arg credits "${credits_phrase}" '
+                any(.[];
+                  ((.user.login // "") | test($regex; "i")) and
+                  (($event_time == "") or ((.submitted_at // "") >= $event_time)) and
+                  (($head == "") or ((.commit_id // "") == $head)) and
+                  (
+                    ((.body // "") | ascii_downcase | contains($limit)) or
+                    ((.body // "") | ascii_downcase | contains($credits))
+                  )
+                )
+              ' reviews.json
+          )
+
+          official_limit_comment=$(
+            jq -r \
+              --arg regex "${reviewer_regex}" \
+              --arg event_time "${PR_EVENT_TIME}" \
+              --arg limit "${limit_phrase}" \
+              --arg credits "${credits_phrase}" '
+                any(.[];
+                  ((.user.login // "") | test($regex; "i")) and
+                  (($event_time == "") or ((.created_at // "") >= $event_time)) and
+                  (
+                    ((.body // "") | ascii_downcase | contains($limit)) or
+                    ((.body // "") | ascii_downcase | contains($credits))
+                  )
+                )
+              ' comments.json
+          )
+
+          if [[ "${official_review_found}" == "true" ]]; then
+            echo "run_local=false" >> "$GITHUB_OUTPUT"
+            echo "reason=official-review-found" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "${official_limit_review}" == "true" || "${official_limit_comment}" == "true" ]]; then
+            echo "run_local=true" >> "$GITHUB_OUTPUT"
+            echo "reason=official-usage-limit" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "run_local=true" >> "$GITHUB_OUTPUT"
+          echo "reason=no-official-review" >> "$GITHUB_OUTPUT"
+
+      - name: Log fallback skip
+        if: >
+          steps.ctx.outputs.skip != 'true' &&
+          steps.trigger.outputs.should_run == 'true' &&
+          steps.trust.outputs.pr_allowed == 'true' &&
+          (!inputs.skip_draft_pr || steps.ctx.outputs.pr_is_draft != 'true') &&
+          steps.fallback.outputs.run_local == 'false' &&
+          steps.fallback.outputs.reason == 'official-review-found'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Skipping self-hosted review because an official Codex review was already found for this PR update."
+
+      - name: Announce review start
+        if: >
+          steps.ctx.outputs.skip != 'true' &&
+          steps.trigger.outputs.should_run == 'true' &&
+          steps.trust.outputs.pr_allowed == 'true' &&
+          (!inputs.skip_draft_pr || steps.ctx.outputs.pr_is_draft != 'true') &&
+          steps.fallback.outputs.run_local == 'true' &&
+          (github.event_name != 'issue_comment' || steps.trust.outputs.commenter_trusted == 'true') &&
+          (github.event_name != 'issue_comment' || !contains(steps.ctx.outputs.commenter, '[bot]'))
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ steps.trigger.outputs.mode }}" == "auto" ]]; then
+            if [[ "${{ steps.fallback.outputs.reason }}" == "official-usage-limit" ]]; then
+              body="🤖 Official Codex review hit usage limits, so the self-hosted reviewer is taking over now."
+            else
+              body="🤖 No official Codex review showed up within ${{ inputs.official_review_wait_minutes }} minutes, so the self-hosted reviewer is taking over now."
+            fi
+          else
+            body="🤖 Received @codex-mobilint. Re-running Codex review now."
+          fi
+
+          gh pr comment "${{ steps.ctx.outputs.pr_number }}" \
+            --repo "${{ steps.ctx.outputs.repo }}" \
+            --body "${body}"
+
+      - name: Run Codex review
+        if: >
+          steps.ctx.outputs.skip != 'true' &&
+          steps.trigger.outputs.should_run == 'true' &&
+          steps.trust.outputs.pr_allowed == 'true' &&
+          (!inputs.skip_draft_pr || steps.ctx.outputs.pr_is_draft != 'true') &&
+          steps.fallback.outputs.run_local == 'true' &&
+          (github.event_name != 'issue_comment' || steps.trust.outputs.commenter_trusted == 'true') &&
+          (github.event_name != 'issue_comment' || !contains(steps.ctx.outputs.commenter, '[bot]'))
+        uses: mobilint/codex-review-action@main
+        with:
+          repo: ${{ steps.ctx.outputs.repo }}
+          pr_number: ${{ steps.ctx.outputs.pr_number }}
+          event_name: ${{ github.event_name }}
+          commenter: ${{ steps.ctx.outputs.commenter }}
+          max_files: ${{ inputs.max_files }}
+          max_diff_chars: ${{ inputs.max_diff_chars }}
 
       - name: Post failure note
         if: >
@@ -251,6 +389,7 @@ jobs:
           steps.trigger.outputs.should_run == 'true' &&
           steps.trust.outputs.pr_allowed == 'true' &&
           (!inputs.skip_draft_pr || steps.ctx.outputs.pr_is_draft != 'true') &&
+          steps.fallback.outputs.run_local == 'true' &&
           (github.event_name != 'issue_comment' || steps.trust.outputs.commenter_trusted == 'true') &&
           (github.event_name != 'issue_comment' || !contains(steps.ctx.outputs.commenter, '[bot]'))
         shell: bash
