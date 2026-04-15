@@ -53,14 +53,14 @@ concurrency:
   group: >-
     ${{ github.event_name == 'pull_request'
       && format('codex-review-auto-{0}-{1}', github.repository, github.event.pull_request.number)
-      || format('codex-review-comment-{0}-{1}', github.repository, github.event.comment.id || github.run_id) }}
+      || format('codex-review-comment-{0}-{1}', github.repository, github.event.comment.id || github.event.review.id || github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   gate:
     if: >
       github.repository_owner == 'mobilint' &&
-      (github.event_name == 'pull_request' || github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment')
+      (github.event_name == 'pull_request' || github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment' || github.event_name == 'pull_request_review')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -106,22 +106,45 @@ jobs:
           fi
 
           pr_number=""
-          commenter_login="${{ github.event.comment.user.login }}"
-          comment_id="${{ github.event.comment.id }}"
-          commenter_association="${{ github.event.comment.author_association }}"
-          comment_body_value="$(jq -r '.comment.body // ""' "$GITHUB_EVENT_PATH")"
+          commenter_login=""
+          comment_id=""
+          commenter_association=""
+          comment_body_value=""
 
-          if [[ "${GITHUB_EVENT_NAME}" == "issue_comment" ]]; then
-            pr_url=$(jq -r '.issue.pull_request.url // empty' "$GITHUB_EVENT_PATH")
-            if [[ -z "${pr_url}" ]]; then
+          case "${GITHUB_EVENT_NAME}" in
+            issue_comment)
+              commenter_login="$(jq -r '.comment.user.login // ""' "$GITHUB_EVENT_PATH")"
+              comment_id="$(jq -r '.comment.id // ""' "$GITHUB_EVENT_PATH")"
+              commenter_association="$(jq -r '.comment.author_association // ""' "$GITHUB_EVENT_PATH")"
+              comment_body_value="$(jq -r '.comment.body // ""' "$GITHUB_EVENT_PATH")"
+              pr_url=$(jq -r '.issue.pull_request.url // empty' "$GITHUB_EVENT_PATH")
+              if [[ -z "${pr_url}" ]]; then
+                echo "skip=true" >> "$GITHUB_OUTPUT"
+                echo "skip_reason=not_a_pr_comment" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              pr_number="$(jq -r '.issue.number // ""' "$GITHUB_EVENT_PATH")"
+              ;;
+            pull_request_review_comment)
+              commenter_login="$(jq -r '.comment.user.login // ""' "$GITHUB_EVENT_PATH")"
+              comment_id="$(jq -r '.comment.id // ""' "$GITHUB_EVENT_PATH")"
+              commenter_association="$(jq -r '.comment.author_association // ""' "$GITHUB_EVENT_PATH")"
+              comment_body_value="$(jq -r '.comment.body // ""' "$GITHUB_EVENT_PATH")"
+              pr_number="$(jq -r '.pull_request.number // ""' "$GITHUB_EVENT_PATH")"
+              ;;
+            pull_request_review)
+              commenter_login="$(jq -r '.review.user.login // .sender.login // ""' "$GITHUB_EVENT_PATH")"
+              comment_id="$(jq -r '.review.id // ""' "$GITHUB_EVENT_PATH")"
+              commenter_association="$(jq -r '.review.author_association // ""' "$GITHUB_EVENT_PATH")"
+              comment_body_value="$(jq -r '.review.body // ""' "$GITHUB_EVENT_PATH")"
+              pr_number="$(jq -r '.pull_request.number // ""' "$GITHUB_EVENT_PATH")"
+              ;;
+            *)
               echo "skip=true" >> "$GITHUB_OUTPUT"
-              echo "skip_reason=not_a_pr_comment" >> "$GITHUB_OUTPUT"
+              echo "skip_reason=unsupported_event" >> "$GITHUB_OUTPUT"
               exit 0
-            fi
-            pr_number="${{ github.event.issue.number }}"
-          else
-            pr_number="${{ github.event.pull_request.number }}"
-          fi
+              ;;
+          esac
 
           pr_meta=$(gh pr view "${pr_number}" \
             --repo "${{ github.repository }}" \
@@ -207,13 +230,23 @@ jobs:
             fi
           fi
 
-          if [[ "${GITHUB_EVENT_NAME}" == "issue_comment" || "${GITHUB_EVENT_NAME}" == "pull_request_review_comment" ]]; then
+          if [[ "${GITHUB_EVENT_NAME}" != "pull_request" ]]; then
             commenter_trusted=false
             case "${COMMENTER_ASSOCIATION}" in
               OWNER|MEMBER|COLLABORATOR)
                 commenter_trusted=true
                 ;;
             esac
+
+            if [[ "${commenter_trusted}" != "true" && -n "${COMMENTER}" ]]; then
+              set +e
+              gh api "/repos/${REPO}/collaborators/${COMMENTER}/permission" >/dev/null 2>&1
+              commenter_check_exit=$?
+              set -e
+              if [[ ${commenter_check_exit} -eq 0 ]]; then
+                commenter_trusted=true
+              fi
+            fi
           fi
 
           if [[ "${TRIGGER_MODE}" == "mention" ]]; then
