@@ -468,14 +468,17 @@ PY
 
           gh api "/repos/${REPO}/actions/runs/${CURRENT_RUN_ID}" > current_run.json
           workflow_id=$(jq -r '.workflow_id' current_run.json)
+          current_run_number=$(jq -r '.run_number' current_run.json)
 
           gh api "/repos/${REPO}/actions/workflows/${workflow_id}/runs?per_page=100" > workflow_runs.json
 
           jq -r \
             --argjson current_run_id "${CURRENT_RUN_ID}" \
+            --argjson current_run_number "${current_run_number}" \
             --argjson pr_number "${PR_NUMBER}" '
               .workflow_runs[]
               | select(.id != $current_run_id)
+              | select((.run_number // 0) < $current_run_number)
               | select(.status == "queued" or .status == "in_progress" or .status == "requested" or .status == "waiting" or .status == "pending")
               | select(any(.pull_requests[]?; .number == $pr_number))
               | .id
