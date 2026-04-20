@@ -161,14 +161,13 @@ jobs:
           echo "comment_id=${comment_id}" >> "$GITHUB_OUTPUT"
           echo "commenter_association=${commenter_association}" >> "$GITHUB_OUTPUT"
 
-          comment_body_delim="$(python - <<'PY'
-import secrets
-print(f"COMMENT_BODY_{secrets.token_hex(16)}")
-PY
-)"
-          echo "comment_body<<${comment_body_delim}" >> "$GITHUB_OUTPUT"
+          delimiter="GH_OUTPUT_$(cat /proc/sys/kernel/random/uuid)"
+          while grep -Fqx "${delimiter}" <<< "${comment_body_value}"; do
+            delimiter="GH_OUTPUT_$(cat /proc/sys/kernel/random/uuid)"
+          done
+          echo "comment_body<<${delimiter}" >> "$GITHUB_OUTPUT"
           printf '%s\n' "${comment_body_value}" >> "$GITHUB_OUTPUT"
-          echo "${comment_body_delim}" >> "$GITHUB_OUTPUT"
+          echo "${delimiter}" >> "$GITHUB_OUTPUT"
 
       - name: Check trigger
         id: trigger
