@@ -461,6 +461,7 @@ PY
         env:
           GH_TOKEN: ${{ github.token }}
           CURRENT_RUN_ID: ${{ github.run_id }}
+          PR_HEAD_SHA: ${{ steps.ctx.outputs.pr_head_sha }}
           PR_NUMBER: ${{ steps.ctx.outputs.pr_number }}
           REPO: ${{ steps.ctx.outputs.repo }}
         run: |
@@ -475,12 +476,13 @@ PY
           jq -r \
             --argjson current_run_id "${CURRENT_RUN_ID}" \
             --argjson current_run_number "${current_run_number}" \
-            --argjson pr_number "${PR_NUMBER}" '
+            --arg pr_head_sha "${PR_HEAD_SHA}" '
               .workflow_runs[]
               | select(.id != $current_run_id)
               | select((.run_number // 0) < $current_run_number)
               | select(.status == "queued" or .status == "in_progress" or .status == "requested" or .status == "waiting" or .status == "pending")
-              | select(any(.pull_requests[]?; .number == $pr_number))
+              | select(.event == "issue_comment" or .event == "pull_request_review_comment" or .event == "pull_request_review")
+              | select(($pr_head_sha == "") or (.head_sha // "") == $pr_head_sha)
               | .id
             ' workflow_runs.json |
           while read -r run_id; do
