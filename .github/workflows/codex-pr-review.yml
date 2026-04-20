@@ -45,33 +45,17 @@ on:
         default: auto
 
 permissions:
+  actions: write
   contents: read
   pull-requests: write
   issues: write
 
 concurrency:
   group: >-
-    ${{ (github.event_name == 'pull_request'
-      || contains(
-        format('{0}\n{1}', github.event.comment.body || '', github.event.review.body || ''),
-        '@mobilint-review'
-      ))
-      && format(
-        'codex-review-{0}-{1}',
-        github.repository,
-        github.event.pull_request.number || github.event.issue.number || github.run_id
-      )
-      || format(
-        'codex-review-comment-{0}-{1}',
-        github.repository,
-        github.event.comment.id || github.event.review.id || github.run_id
-      ) }}
-  cancel-in-progress: >-
     ${{ github.event_name == 'pull_request'
-      || contains(
-        format('{0}\n{1}', github.event.comment.body || '', github.event.review.body || ''),
-        '@mobilint-review'
-      ) }}
+      && format('codex-review-auto-{0}-{1}', github.repository, github.event.pull_request.number)
+      || format('codex-review-comment-{0}-{1}', github.repository, github.event.comment.id || github.event.review.id || github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   gate:
@@ -463,6 +447,44 @@ PY
         run: |
           set -euo pipefail
           echo "Skipping self-hosted review because an official Codex signal was already found for this PR update."
+
+      - name: Cancel superseded mention-triggered runs
+        if: >
+          steps.ctx.outputs.skip != 'true' &&
+          steps.trigger.outputs.should_run == 'true' &&
+          steps.trigger.outputs.mode == 'mention' &&
+          steps.trust.outputs.pr_allowed == 'true' &&
+          (!inputs.skip_draft_pr || steps.ctx.outputs.pr_is_draft != 'true') &&
+          (github.event_name == 'pull_request' || steps.trust.outputs.commenter_trusted == 'true') &&
+          (github.event_name == 'pull_request' || !contains(steps.ctx.outputs.commenter, '[bot]'))
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+          PR_NUMBER: ${{ steps.ctx.outputs.pr_number }}
+          REPO: ${{ steps.ctx.outputs.repo }}
+        run: |
+          set -euo pipefail
+
+          gh api "/repos/${REPO}/actions/runs/${CURRENT_RUN_ID}" > current_run.json
+          workflow_id=$(jq -r '.workflow_id' current_run.json)
+
+          gh api "/repos/${REPO}/actions/workflows/${workflow_id}/runs?per_page=100" > workflow_runs.json
+
+          jq -r \
+            --argjson current_run_id "${CURRENT_RUN_ID}" \
+            --argjson pr_number "${PR_NUMBER}" '
+              .workflow_runs[]
+              | select(.id != $current_run_id)
+              | select(.status == "queued" or .status == "in_progress" or .status == "requested" or .status == "waiting" or .status == "pending")
+              | select(any(.pull_requests[]?; .number == $pr_number))
+              | .id
+            ' workflow_runs.json |
+          while read -r run_id; do
+            [[ -n "${run_id}" ]] || continue
+            echo "Canceling superseded workflow run ${run_id} for PR #${PR_NUMBER}."
+            gh api --method POST "/repos/${REPO}/actions/runs/${run_id}/cancel"
+          done
 
       - name: Announce review start
         if: >
