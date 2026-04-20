@@ -487,6 +487,16 @@ PY
             ' workflow_runs.json |
           while read -r run_id; do
             [[ -n "${run_id}" ]] || continue
+
+            gh api "/repos/${REPO}/actions/runs/${run_id}" > candidate_run.json
+            candidate_pr_number=$(
+              jq -r \
+                --argjson pr_number "${PR_NUMBER}" '
+                  first(.pull_requests[]? | select(.number == $pr_number) | .number) // ""
+                ' candidate_run.json
+            )
+            [[ -n "${candidate_pr_number}" ]] || continue
+
             echo "Canceling superseded workflow run ${run_id} for PR #${PR_NUMBER}."
             gh api --method POST "/repos/${REPO}/actions/runs/${run_id}/cancel"
           done
