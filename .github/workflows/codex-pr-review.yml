@@ -45,6 +45,7 @@ on:
         default: auto
 
 permissions:
+  actions: write
   contents: read
   pull-requests: write
   issues: write
@@ -445,6 +446,77 @@ jobs:
         run: |
           set -euo pipefail
           echo "Skipping self-hosted review because an official Codex signal was already found for this PR update."
+
+      - name: Cancel superseded mention-triggered runs
+        if: >
+          steps.ctx.outputs.skip != 'true' &&
+          steps.trigger.outputs.should_run == 'true' &&
+          steps.trigger.outputs.mode == 'mention' &&
+          steps.trust.outputs.pr_allowed == 'true' &&
+          (!inputs.skip_draft_pr || steps.ctx.outputs.pr_is_draft != 'true') &&
+          (github.event_name == 'pull_request' || steps.trust.outputs.commenter_trusted == 'true') &&
+          (github.event_name == 'pull_request' || !contains(steps.ctx.outputs.commenter, '[bot]'))
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+          PR_NUMBER: ${{ steps.ctx.outputs.pr_number }}
+          REPO: ${{ steps.ctx.outputs.repo }}
+        run: |
+          set -euo pipefail
+
+          gh api "/repos/${REPO}/actions/runs/${CURRENT_RUN_ID}" > current_run.json
+          workflow_id=$(jq -r '.workflow_id' current_run.json)
+          current_run_number=$(jq -r '.run_number' current_run.json)
+          page=1
+          while true; do
+            gh api "/repos/${REPO}/actions/workflows/${workflow_id}/runs?per_page=100&page=${page}" > workflow_runs.json
+            run_count=$(jq '.workflow_runs | length' workflow_runs.json)
+            [[ "${run_count}" -gt 0 ]] || break
+
+            jq -r \
+              --argjson current_run_id "${CURRENT_RUN_ID}" \
+              --argjson current_run_number "${current_run_number}" '
+                .workflow_runs[]
+                | select(.id != $current_run_id)
+                | select((.run_number // 0) < $current_run_number)
+                | select(.status == "queued" or .status == "in_progress" or .status == "requested" or .status == "waiting" or .status == "pending")
+                | select(.event == "issue_comment" or .event == "pull_request_review_comment" or .event == "pull_request_review")
+                | .id
+              ' workflow_runs.json |
+            while read -r run_id; do
+              [[ -n "${run_id}" ]] || continue
+
+              gh api "/repos/${REPO}/actions/runs/${run_id}" > candidate_run.json
+              candidate_pr_number=$(
+                jq -r \
+                  --argjson pr_number "${PR_NUMBER}" '
+                    first(.pull_requests[]? | select(.number == $pr_number) | .number) // ""
+                  ' candidate_run.json
+              )
+              [[ -n "${candidate_pr_number}" ]] || continue
+
+              echo "Canceling superseded workflow run ${run_id} for PR #${PR_NUMBER}."
+              set +e
+              cancel_output=$(gh api --method POST "/repos/${REPO}/actions/runs/${run_id}/cancel" 2>&1)
+              cancel_exit=$?
+              set -e
+
+              if [[ ${cancel_exit} -ne 0 ]]; then
+                if grep -q "409" <<< "${cancel_output}"; then
+                  echo "Skipping run ${run_id}; GitHub reported it is no longer cancelable."
+                  continue
+                fi
+                printf '%s\n' "${cancel_output}" >&2
+                exit "${cancel_exit}"
+              fi
+            done
+
+            if [[ "${run_count}" -lt 100 ]]; then
+              break
+            fi
+            page=$((page + 1))
+          done
 
       - name: Announce review start
         if: >
