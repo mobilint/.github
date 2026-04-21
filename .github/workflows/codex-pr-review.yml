@@ -38,11 +38,11 @@ on:
         required: false
         type: boolean
         default: false
-      sandbox_strategy:
-        description: Codex sandbox strategy on the self-hosted runner (auto or unsandboxed)
+      allow_unsafe_no_sandbox_fallback:
+        description: Allow trusted self-hosted runners to retry Codex without sandbox when sandbox startup is unsupported
         required: false
-        type: string
-        default: auto
+        type: boolean
+        default: true
 
 permissions:
   actions: write
@@ -345,12 +345,51 @@ jobs:
           limit_phrase='codex usage limits have been reached for code reviews.'
           credits_phrase='credits must be used to enable repository wide code reviews.'
 
-          gh api "/repos/${REPO}/pulls/${PR_NUMBER}/reviews?per_page=100" > reviews.json
-          gh api "/repos/${REPO}/issues/${PR_NUMBER}/comments?per_page=100" > comments.json
-          gh api \
-            "/repos/${REPO}/issues/${PR_NUMBER}/reactions?per_page=100" \
-            -H "Accept: application/vnd.github+json" \
-            > reactions.json
+          max_pages=3
+          per_page=100
+
+          collect_pages() {
+            local output_file="$1"
+            local endpoint="$2"
+            local accept_header="${3:-}"
+            local page=1
+            local collected=0
+            local page_file
+            local page_count
+
+            printf '[]\n' > "${output_file}"
+
+            while [[ ${page} -le ${max_pages} && ${collected} -lt $((max_pages * per_page)) ]]; do
+              page_file="$(mktemp)"
+              if [[ -n "${accept_header}" ]]; then
+                gh api "${endpoint}?per_page=${per_page}&page=${page}" -H "${accept_header}" > "${page_file}"
+              else
+                gh api "${endpoint}?per_page=${per_page}&page=${page}" > "${page_file}"
+              fi
+
+              page_count=$(jq 'length' "${page_file}")
+              if [[ "${page_count}" -eq 0 ]]; then
+                rm -f "${page_file}"
+                break
+              fi
+
+              jq -s 'add' "${output_file}" "${page_file}" > "${output_file}.tmp"
+              mv "${output_file}.tmp" "${output_file}"
+              rm -f "${page_file}"
+
+              collected=$((collected + page_count))
+              if [[ "${page_count}" -lt ${per_page} ]]; then
+                break
+              fi
+              page=$((page + 1))
+            done
+          }
+
+          collect_pages reviews.json "/repos/${REPO}/pulls/${PR_NUMBER}/reviews"
+          collect_pages comments.json "/repos/${REPO}/issues/${PR_NUMBER}/comments"
+          collect_pages reactions.json "/repos/${REPO}/issues/${PR_NUMBER}/reactions" "Accept: application/vnd.github+json"
+
+          echo "Fetched $(jq 'length' reviews.json) reviews, $(jq 'length' comments.json) comments, $(jq 'length' reactions.json) reactions while checking for official Codex output."
 
           official_review_found=$(
             jq -r \
@@ -566,7 +605,8 @@ jobs:
           commenter: ${{ needs.gate.outputs.commenter }}
           max_files: ${{ inputs.max_files }}
           max_diff_chars: ${{ inputs.max_diff_chars }}
-          sandbox_strategy: ${{ inputs.sandbox_strategy }}
+          sandbox_mode: read-only
+          allow_unsafe_no_sandbox_fallback: ${{ inputs.allow_unsafe_no_sandbox_fallback }}
 
   post-failure:
     needs:
