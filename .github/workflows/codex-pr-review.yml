@@ -42,7 +42,7 @@ on:
         description: Allow trusted self-hosted runners to retry Codex without sandbox when sandbox startup is unsupported
         required: false
         type: boolean
-        default: true
+        default: false
 
 permissions:
   actions: write
