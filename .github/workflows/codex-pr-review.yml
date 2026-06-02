@@ -458,7 +458,19 @@ jobs:
               ' reactions.json
           )
 
-          if [[ "${official_review_found}" == "true" || "${official_thumbsup_reaction}" == "true" ]]; then
+          official_eyes_reaction=$(
+            jq -r \
+              --arg login "${official_bot_login}" \
+              --arg event_time "${PR_EVENT_TIME}" '
+                any(.[];
+                  (((.user.login // "") | ascii_downcase) == $login) and
+                  ((.content // "") == "eyes") and
+                  (($event_time == "") or ((.created_at // "") >= $event_time))
+                )
+              ' reactions.json
+          )
+
+          if [[ "${official_review_found}" == "true" || "${official_thumbsup_reaction}" == "true" || "${official_eyes_reaction}" == "true" ]]; then
             echo "run_local=false" >> "$GITHUB_OUTPUT"
             echo "reason=official-signal-found" >> "$GITHUB_OUTPUT"
             exit 0
