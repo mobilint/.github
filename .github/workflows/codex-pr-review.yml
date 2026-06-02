@@ -471,15 +471,15 @@ jobs:
               ' reactions.json
           )
 
-          if [[ "${official_review_found}" == "true" || "${official_thumbsup_reaction}" == "true" || "${official_eyes_reaction}" == "true" ]]; then
-            echo "run_local=false" >> "$GITHUB_OUTPUT"
-            echo "reason=official-signal-found" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
           if [[ "${official_limit_review}" == "true" || "${official_limit_comment}" == "true" ]]; then
             echo "run_local=true" >> "$GITHUB_OUTPUT"
             echo "reason=official-usage-limit" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "${official_review_found}" == "true" || "${official_thumbsup_reaction}" == "true" || "${official_eyes_reaction}" == "true" ]]; then
+            echo "run_local=false" >> "$GITHUB_OUTPUT"
+            echo "reason=official-signal-found" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
