@@ -75,6 +75,7 @@ jobs:
       pr_number: ${{ steps.ctx.outputs.pr_number }}
       commenter: ${{ steps.ctx.outputs.commenter }}
       comment_id: ${{ steps.ctx.outputs.comment_id }}
+      mention_slot: ${{ steps.ctx.outputs.mention_slot }}
       pr_is_draft: ${{ steps.ctx.outputs.pr_is_draft }}
       should_run: ${{ steps.trigger.outputs.should_run }}
       mode: ${{ steps.trigger.outputs.mode }}
@@ -96,6 +97,7 @@ jobs:
           echo "skip=false" >> "$GITHUB_OUTPUT"
           echo "repo=${{ github.repository }}" >> "$GITHUB_OUTPUT"
           echo "comment_id=" >> "$GITHUB_OUTPUT"
+          echo "mention_slot=0" >> "$GITHUB_OUTPUT"
           echo "commenter=" >> "$GITHUB_OUTPUT"
           echo "commenter_association=" >> "$GITHUB_OUTPUT"
           echo "pr_head_sha=" >> "$GITHUB_OUTPUT"
@@ -167,6 +169,15 @@ jobs:
           echo "commenter=${commenter_login}" >> "$GITHUB_OUTPUT"
           echo "comment_id=${comment_id}" >> "$GITHUB_OUTPUT"
           echo "commenter_association=${commenter_association}" >> "$GITHUB_OUTPUT"
+          max_concurrent="${{ inputs.max_concurrent_mention_reviews }}"
+          if ! [[ "${max_concurrent}" =~ ^[1-9][0-9]*$ ]]; then
+            max_concurrent=5
+          fi
+          if [[ "${comment_id}" =~ ^[0-9]+$ ]]; then
+            echo "mention_slot=$((comment_id % max_concurrent))" >> "$GITHUB_OUTPUT"
+          else
+            echo "mention_slot=0" >> "$GITHUB_OUTPUT"
+          fi
 
           delimiter="GH_OUTPUT_$(cat /proc/sys/kernel/random/uuid)"
           while grep -Fqx "${delimiter}" <<< "${comment_body_value}"; do
@@ -338,66 +349,10 @@ jobs:
           PR_HEAD_SHA: ${{ steps.ctx.outputs.pr_head_sha }}
           PR_EVENT_TIME: ${{ steps.ctx.outputs.pr_event_time }}
           TRIGGER_MODE: ${{ steps.trigger.outputs.mode }}
-          CURRENT_RUN_ID: ${{ github.run_id }}
-          MAX_CONCURRENT_MENTION_REVIEWS: ${{ inputs.max_concurrent_mention_reviews }}
         run: |
           set -euo pipefail
 
           if [[ "${TRIGGER_MODE}" != "auto" ]]; then
-            max_concurrent="${MAX_CONCURRENT_MENTION_REVIEWS:-5}"
-            if ! [[ "${max_concurrent}" =~ ^[1-9][0-9]*$ ]]; then
-              max_concurrent=5
-            fi
-
-            gh api "/repos/${REPO}/actions/runs/${CURRENT_RUN_ID}" > current_run.json
-            workflow_id=$(jq -r '.workflow_id' current_run.json)
-            active_mention_count=0
-            max_pages=3
-            per_page=100
-            page=1
-
-            while [[ ${page} -le ${max_pages} ]]; do
-              gh api "/repos/${REPO}/actions/workflows/${workflow_id}/runs?per_page=${per_page}&page=${page}" > workflow_runs.json
-              run_count=$(jq '.workflow_runs | length' workflow_runs.json)
-              [[ "${run_count}" -gt 0 ]] || break
-
-              jq -r \
-                --argjson current_run_id "${CURRENT_RUN_ID}" '
-                  .workflow_runs[]
-                  | select(.id != $current_run_id)
-                  | select(.status == "queued" or .status == "in_progress" or .status == "requested" or .status == "waiting" or .status == "pending")
-                  | select(.event == "issue_comment" or .event == "pull_request_review_comment" or .event == "pull_request_review")
-                  | .id
-                ' workflow_runs.json > candidate-run-ids.txt
-
-              while read -r run_id; do
-                [[ -n "${run_id}" ]] || continue
-                gh api "/repos/${REPO}/actions/runs/${run_id}" > candidate_run.json
-                candidate_pr_number=$(
-                  jq -r \
-                    --argjson pr_number "${PR_NUMBER}" '
-                      first(.pull_requests[]? | select(.number == $pr_number) | .number) // ""
-                    ' candidate_run.json
-                )
-                candidate_head_sha="$(jq -r '.head_sha // ""' candidate_run.json)"
-                if [[ -n "${candidate_pr_number}" || (-n "${PR_HEAD_SHA}" && "${candidate_head_sha}" == "${PR_HEAD_SHA}") ]]; then
-                  active_mention_count=$((active_mention_count + 1))
-                fi
-              done < candidate-run-ids.txt
-
-              if [[ "${run_count}" -lt ${per_page} ]]; then
-                break
-              fi
-              page=$((page + 1))
-            done
-
-            echo "Found ${active_mention_count} active mention-triggered Codex review run(s) for PR #${PR_NUMBER}; limit is ${max_concurrent}."
-            if [[ "${active_mention_count}" -ge "${max_concurrent}" ]]; then
-              echo "run_local=false" >> "$GITHUB_OUTPUT"
-              echo "reason=mention-concurrency-limit" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-
             echo "run_local=true" >> "$GITHUB_OUTPUT"
             echo "reason=mention" >> "$GITHUB_OUTPUT"
             exit 0
@@ -560,39 +515,6 @@ jobs:
           set -euo pipefail
           echo "Skipping self-hosted review because an official Codex signal was already found for this PR update."
 
-      - name: Announce mention concurrency limit
-        if: >
-          steps.ctx.outputs.skip != 'true' &&
-          steps.trigger.outputs.should_run == 'true' &&
-          steps.trust.outputs.pr_allowed == 'true' &&
-          (!inputs.skip_draft_pr || steps.ctx.outputs.pr_is_draft != 'true') &&
-          steps.fallback.outputs.run_local == 'false' &&
-          steps.fallback.outputs.reason == 'mention-concurrency-limit'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          body="⚠️ Too many @mobilint-review requests are already running for this PR. Please retry after one finishes."
-
-          if [[ "${GITHUB_EVENT_NAME}" == "pull_request_review_comment" ]]; then
-            reply_target_id="$(jq -r '.comment.in_reply_to_id // .comment.id // ""' "${GITHUB_EVENT_PATH}")"
-            if [[ -n "${reply_target_id}" ]]; then
-              jq -n --arg body "${body}" '{body: $body}' > reply-payload.json
-              gh api \
-                --method POST \
-                -H "Accept: application/vnd.github+json" \
-                "/repos/${{ steps.ctx.outputs.repo }}/pulls/${{ steps.ctx.outputs.pr_number }}/comments/${reply_target_id}/replies" \
-                --input reply-payload.json
-              exit 0
-            fi
-          fi
-
-          gh pr comment "${{ steps.ctx.outputs.pr_number }}" \
-            --repo "${{ steps.ctx.outputs.repo }}" \
-            --body "${body}"
-
       - name: Announce review start
         if: >
           steps.ctx.outputs.skip != 'true' &&
@@ -638,6 +560,12 @@ jobs:
   run-review:
     needs: gate
     if: needs.gate.outputs.run_local == 'true'
+    concurrency:
+      group: >-
+        ${{ needs.gate.outputs.mode == 'mention'
+          && format('codex-review-mention-{0}-{1}-{2}', needs.gate.outputs.repo, needs.gate.outputs.pr_number, needs.gate.outputs.mention_slot)
+          || format('codex-review-run-{0}-{1}', needs.gate.outputs.repo, needs.gate.outputs.pr_number) }}
+      cancel-in-progress: false
     runs-on:
       group: codex
       labels: codex-reviewer
