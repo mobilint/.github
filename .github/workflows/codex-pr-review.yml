@@ -69,6 +69,7 @@ jobs:
       repo: ${{ steps.ctx.outputs.repo }}
       pr_number: ${{ steps.ctx.outputs.pr_number }}
       commenter: ${{ steps.ctx.outputs.commenter }}
+      comment_id: ${{ steps.ctx.outputs.comment_id }}
       pr_is_draft: ${{ steps.ctx.outputs.pr_is_draft }}
       should_run: ${{ steps.trigger.outputs.should_run }}
       mode: ${{ steps.trigger.outputs.mode }}
@@ -594,6 +595,19 @@ jobs:
             body="🤖 Received @mobilint-review. The self-hosted Codex agent is responding now."
           fi
 
+          if [[ "${{ steps.trigger.outputs.mode }}" == "mention" && "${GITHUB_EVENT_NAME}" == "pull_request_review_comment" ]]; then
+            reply_target_id="$(jq -r '.comment.in_reply_to_id // .comment.id // ""' "${GITHUB_EVENT_PATH}")"
+            if [[ -n "${reply_target_id}" ]]; then
+              jq -n --arg body "${body}" '{body: $body}' > reply-payload.json
+              gh api \
+                --method POST \
+                -H "Accept: application/vnd.github+json" \
+                "/repos/${{ steps.ctx.outputs.repo }}/pulls/${{ steps.ctx.outputs.pr_number }}/comments/${reply_target_id}/replies" \
+                --input reply-payload.json
+              exit 0
+            fi
+          fi
+
           gh pr comment "${{ steps.ctx.outputs.pr_number }}" \
             --repo "${{ steps.ctx.outputs.repo }}" \
             --body "${body}"
@@ -614,6 +628,7 @@ jobs:
           pr_number: ${{ needs.gate.outputs.pr_number }}
           event_name: ${{ needs.gate.outputs.event_name }}
           mode: ${{ needs.gate.outputs.mode }}
+          comment_id: ${{ needs.gate.outputs.comment_id }}
           commenter: ${{ needs.gate.outputs.commenter }}
           max_files: ${{ inputs.max_files }}
           max_diff_chars: ${{ inputs.max_diff_chars }}
