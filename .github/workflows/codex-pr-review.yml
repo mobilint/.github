@@ -83,6 +83,8 @@ jobs:
       commenter_trusted: ${{ steps.trust.outputs.commenter_trusted }}
       run_local: ${{ steps.fallback.outputs.run_local }}
       fallback_reason: ${{ steps.fallback.outputs.reason }}
+      ack_reaction_id: ${{ steps.ack.outputs.reaction_id }}
+      ack_reaction_target: ${{ steps.ack.outputs.reaction_target }}
 
     steps:
       - name: Resolve event context
@@ -515,7 +517,8 @@ jobs:
           set -euo pipefail
           echo "Skipping self-hosted review because an official Codex signal was already found for this PR update."
 
-      - name: Announce review start
+      - name: Add eyes reaction while review is running
+        id: ack
         if: >
           steps.ctx.outputs.skip != 'true' &&
           steps.trigger.outputs.should_run == 'true' &&
@@ -530,32 +533,34 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "${{ steps.trigger.outputs.mode }}" == "auto" ]]; then
-            if [[ "${{ steps.fallback.outputs.reason }}" == "official-usage-limit" ]]; then
-              body="🤖 Official Codex review hit usage limits, so the self-hosted reviewer is taking over now."
-            else
-              body="🤖 No official Codex review showed up within ${{ inputs.official_review_wait_minutes }} minutes, so the self-hosted reviewer is taking over now."
-            fi
-          else
-            body="🤖 Received @mobilint-review. The self-hosted Codex agent is responding now."
+          case "${GITHUB_EVENT_NAME}" in
+            issue_comment)
+              endpoint="/repos/${{ steps.ctx.outputs.repo }}/issues/comments/${{ steps.ctx.outputs.comment_id }}/reactions"
+              reaction_target="issue_comment"
+              ;;
+            pull_request_review_comment)
+              endpoint="/repos/${{ steps.ctx.outputs.repo }}/pulls/comments/${{ steps.ctx.outputs.comment_id }}/reactions"
+              reaction_target="review_comment"
+              ;;
+            *)
+              endpoint="/repos/${{ steps.ctx.outputs.repo }}/issues/${{ steps.ctx.outputs.pr_number }}/reactions"
+              reaction_target="issue"
+              ;;
+          esac
+
+          response=$(gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "${endpoint}" \
+            -f content='eyes')
+          reaction_id=$(jq -r '.id // ""' <<< "${response}")
+          if [[ -z "${reaction_id}" ]]; then
+            echo "Failed to obtain the temporary eyes reaction ID." >&2
+            exit 1
           fi
 
-          if [[ "${{ steps.trigger.outputs.mode }}" == "mention" && "${GITHUB_EVENT_NAME}" == "pull_request_review_comment" ]]; then
-            reply_target_id="$(jq -r '.comment.in_reply_to_id // .comment.id // ""' "${GITHUB_EVENT_PATH}")"
-            if [[ -n "${reply_target_id}" ]]; then
-              jq -n --arg body "${body}" '{body: $body}' > reply-payload.json
-              gh api \
-                --method POST \
-                -H "Accept: application/vnd.github+json" \
-                "/repos/${{ steps.ctx.outputs.repo }}/pulls/${{ steps.ctx.outputs.pr_number }}/comments/${reply_target_id}/replies" \
-                --input reply-payload.json
-              exit 0
-            fi
-          fi
-
-          gh pr comment "${{ steps.ctx.outputs.pr_number }}" \
-            --repo "${{ steps.ctx.outputs.repo }}" \
-            --body "${body}"
+          echo "reaction_id=${reaction_id}" >> "$GITHUB_OUTPUT"
+          echo "reaction_target=${reaction_target}" >> "$GITHUB_OUTPUT"
 
   run-review:
     needs: gate
@@ -581,6 +586,8 @@ jobs:
           mode: ${{ needs.gate.outputs.mode }}
           comment_id: ${{ needs.gate.outputs.comment_id }}
           commenter: ${{ needs.gate.outputs.commenter }}
+          ack_reaction_id: ${{ needs.gate.outputs.ack_reaction_id }}
+          ack_reaction_target: ${{ needs.gate.outputs.ack_reaction_target }}
           max_files: ${{ inputs.max_files }}
           max_diff_chars: ${{ inputs.max_diff_chars }}
           sandbox_mode: read-only
@@ -601,6 +608,29 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+
+          reaction_id="${{ needs.gate.outputs.ack_reaction_id }}"
+          reaction_target="${{ needs.gate.outputs.ack_reaction_target }}"
+          if [[ -n "${reaction_id}" ]]; then
+            case "${reaction_target}" in
+              issue)
+                endpoint="/repos/${{ needs.gate.outputs.repo }}/issues/${{ needs.gate.outputs.pr_number }}/reactions/${reaction_id}"
+                ;;
+              issue_comment)
+                endpoint="/repos/${{ needs.gate.outputs.repo }}/issues/comments/${{ needs.gate.outputs.comment_id }}/reactions/${reaction_id}"
+                ;;
+              review_comment)
+                endpoint="/repos/${{ needs.gate.outputs.repo }}/pulls/comments/${{ needs.gate.outputs.comment_id }}/reactions/${reaction_id}"
+                ;;
+              *)
+                endpoint=""
+                ;;
+            esac
+            if [[ -n "${endpoint}" ]]; then
+              gh api --method DELETE -H "Accept: application/vnd.github+json" "${endpoint}" >/dev/null 2>&1 || true
+            fi
+          fi
+
           gh pr comment "${{ needs.gate.outputs.pr_number }}" \
             --repo "${{ needs.gate.outputs.repo }}" \
             --body "⚠️ Codex review did not complete successfully."
