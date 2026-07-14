@@ -208,9 +208,47 @@ jobs:
               should_run=true
               mode=auto
             fi
-          elif grep -Eiq '(^|[[:space:]])@mobilint-review([[:space:][:punct:]]|$)' <<< "${COMMENT_BODY}"; then
-            should_run=true
-            mode=mention
+          else
+            actionable_mention=$(
+              python3 - <<'PY'
+          import os
+          import re
+
+          text = os.environ.get("COMMENT_BODY", "")
+          mention_re = re.compile(
+              r"(^|[^\S\r\n])@mobilint-review(?=[\s\W]|$)",
+              re.I | re.M,
+          )
+          fence_re = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
+          blockquote_re = re.compile(r"^[ \t]{0,3}>")
+          indented_code_re = re.compile(r"^(?: {4}|\t)")
+          inline_code_re = re.compile(r"(`+).*?\1")
+          visible_lines = []
+          fence_char = ""
+          fence_length = 0
+
+          for line in text.splitlines():
+              fence = fence_re.match(line)
+              if fence:
+                  marker = fence.group(1)
+                  if not fence_char:
+                      fence_char = marker[0]
+                      fence_length = len(marker)
+                  elif marker[0] == fence_char and len(marker) >= fence_length:
+                      fence_char = ""
+                      fence_length = 0
+                  continue
+              if fence_char or blockquote_re.match(line) or indented_code_re.match(line):
+                  continue
+              visible_lines.append(inline_code_re.sub("", line))
+
+          print("true" if mention_re.search("\n".join(visible_lines)) else "false")
+          PY
+            )
+            if [[ "${actionable_mention}" == "true" ]]; then
+              should_run=true
+              mode=mention
+            fi
           fi
 
           echo "should_run=${should_run}" >> "$GITHUB_OUTPUT"
