@@ -1,0 +1,674 @@
+name: Codex Review Reusable
+
+on:
+  workflow_call:
+    inputs:
+      review_on_member_pr_only:
+        description: Run automatic review only for PRs opened by org owners or members
+        required: false
+        type: boolean
+        default: true
+      post_untrusted_notice:
+        description: Whether to leave a notice comment for untrusted PRs
+        required: false
+        type: boolean
+        default: true
+      skip_draft_pr:
+        description: Skip draft PRs
+        required: false
+        type: boolean
+        default: true
+      max_files:
+        description: Soft limit for changed files passed to the review runner
+        required: false
+        type: number
+        default: 200
+      max_diff_chars:
+        description: Soft limit for diff size passed to the review runner
+        required: false
+        type: number
+        default: 200000
+      official_review_wait_minutes:
+        description: Minutes to wait for the official Codex review before running the self-hosted fallback
+        required: false
+        type: number
+        default: 5
+      review_on_pr_synchronize:
+        description: Run automatic review when new commits are pushed to an existing PR
+        required: false
+        type: boolean
+        default: false
+      allow_unsafe_no_sandbox_fallback:
+        description: Allow trusted self-hosted runners to retry Codex without sandbox when sandbox startup is unsupported
+        required: false
+        type: boolean
+        default: false
+      max_concurrent_mention_reviews:
+        description: Maximum active mention-triggered Codex reviews allowed per PR
+        required: false
+        type: number
+        default: 5
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: >-
+    ${{ github.event_name == 'pull_request'
+      && format('codex-review-auto-{0}-{1}', github.repository, github.event.pull_request.number)
+      || format('codex-review-comment-{0}-{1}', github.repository, github.event.comment.id || github.event.review.id || github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  gate:
+    if: >
+      github.repository_owner == 'mobilint' &&
+      (github.event_name == 'pull_request' || github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment' || github.event_name == 'pull_request_review')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      event_name: ${{ steps.ctx.outputs.event_name }}
+      repo: ${{ steps.ctx.outputs.repo }}
+      pr_number: ${{ steps.ctx.outputs.pr_number }}
+      commenter: ${{ steps.ctx.outputs.commenter }}
+      comment_id: ${{ steps.ctx.outputs.comment_id }}
+      mention_slot: ${{ steps.ctx.outputs.mention_slot }}
+      pr_is_draft: ${{ steps.ctx.outputs.pr_is_draft }}
+      should_run: ${{ steps.trigger.outputs.should_run }}
+      mode: ${{ steps.trigger.outputs.mode }}
+      pr_allowed: ${{ steps.trust.outputs.pr_allowed }}
+      commenter_trusted: ${{ steps.trust.outputs.commenter_trusted }}
+      run_local: ${{ steps.fallback.outputs.run_local }}
+      fallback_reason: ${{ steps.fallback.outputs.reason }}
+      ack_reaction_id: ${{ steps.ack.outputs.reaction_id }}
+      ack_reaction_target: ${{ steps.ack.outputs.reaction_target }}
+
+    steps:
+      - name: Resolve event context
+        id: ctx
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          echo "event_name=${GITHUB_EVENT_NAME}" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "repo=${{ github.repository }}" >> "$GITHUB_OUTPUT"
+          echo "comment_id=" >> "$GITHUB_OUTPUT"
+          echo "mention_slot=0" >> "$GITHUB_OUTPUT"
+          echo "commenter=" >> "$GITHUB_OUTPUT"
+          echo "commenter_association=" >> "$GITHUB_OUTPUT"
+          echo "pr_head_sha=" >> "$GITHUB_OUTPUT"
+          echo "pr_event_time=" >> "$GITHUB_OUTPUT"
+
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            echo "pr_number=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+            echo "pr_author=${{ github.event.pull_request.user.login }}" >> "$GITHUB_OUTPUT"
+            echo "pr_author_association=${{ github.event.pull_request.author_association }}" >> "$GITHUB_OUTPUT"
+            echo "pr_is_draft=${{ github.event.pull_request.draft }}" >> "$GITHUB_OUTPUT"
+            echo "pr_head_sha=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+            echo "pr_event_time=${{ github.event.pull_request.updated_at }}" >> "$GITHUB_OUTPUT"
+            echo "comment_body=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          pr_number=""
+          commenter_login=""
+          comment_id=""
+          commenter_association=""
+          comment_body_value=""
+
+          case "${GITHUB_EVENT_NAME}" in
+            issue_comment)
+              commenter_login="$(jq -r '.comment.user.login // ""' "$GITHUB_EVENT_PATH")"
+              comment_id="$(jq -r '.comment.id // ""' "$GITHUB_EVENT_PATH")"
+              commenter_association="$(jq -r '.comment.author_association // ""' "$GITHUB_EVENT_PATH")"
+              comment_body_value="$(jq -r '.comment.body // ""' "$GITHUB_EVENT_PATH")"
+              pr_url=$(jq -r '.issue.pull_request.url // empty' "$GITHUB_EVENT_PATH")
+              if [[ -z "${pr_url}" ]]; then
+                echo "skip=true" >> "$GITHUB_OUTPUT"
+                echo "skip_reason=not_a_pr_comment" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              pr_number="$(jq -r '.issue.number // ""' "$GITHUB_EVENT_PATH")"
+              ;;
+            pull_request_review_comment)
+              commenter_login="$(jq -r '.comment.user.login // ""' "$GITHUB_EVENT_PATH")"
+              comment_id="$(jq -r '.comment.id // ""' "$GITHUB_EVENT_PATH")"
+              commenter_association="$(jq -r '.comment.author_association // ""' "$GITHUB_EVENT_PATH")"
+              comment_body_value="$(jq -r '.comment.body // ""' "$GITHUB_EVENT_PATH")"
+              pr_number="$(jq -r '.pull_request.number // ""' "$GITHUB_EVENT_PATH")"
+              ;;
+            pull_request_review)
+              commenter_login="$(jq -r '.review.user.login // .sender.login // ""' "$GITHUB_EVENT_PATH")"
+              comment_id="$(jq -r '.review.id // ""' "$GITHUB_EVENT_PATH")"
+              commenter_association="$(jq -r '.review.author_association // ""' "$GITHUB_EVENT_PATH")"
+              comment_body_value="$(jq -r '.review.body // ""' "$GITHUB_EVENT_PATH")"
+              pr_number="$(jq -r '.pull_request.number // ""' "$GITHUB_EVENT_PATH")"
+              ;;
+            *)
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "skip_reason=unsupported_event" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+
+          pr_meta=$(gh pr view "${pr_number}" \
+            --repo "${{ github.repository }}" \
+            --json author,isDraft,headRefOid,updatedAt)
+          pr_issue_meta=$(gh api "/repos/${{ github.repository }}/issues/${pr_number}")
+
+          echo "pr_number=${pr_number}" >> "$GITHUB_OUTPUT"
+          echo "pr_author=$(jq -r '.author.login' <<< "${pr_meta}")" >> "$GITHUB_OUTPUT"
+          echo "pr_author_association=$(jq -r '.author_association // ""' <<< "${pr_issue_meta}")" >> "$GITHUB_OUTPUT"
+          echo "pr_is_draft=$(jq -r '.isDraft' <<< "${pr_meta}")" >> "$GITHUB_OUTPUT"
+          echo "pr_head_sha=$(jq -r '.headRefOid // ""' <<< "${pr_meta}")" >> "$GITHUB_OUTPUT"
+          echo "pr_event_time=$(jq -r '.updatedAt // ""' <<< "${pr_meta}")" >> "$GITHUB_OUTPUT"
+          echo "commenter=${commenter_login}" >> "$GITHUB_OUTPUT"
+          echo "comment_id=${comment_id}" >> "$GITHUB_OUTPUT"
+          echo "commenter_association=${commenter_association}" >> "$GITHUB_OUTPUT"
+          max_concurrent="${{ inputs.max_concurrent_mention_reviews }}"
+          if ! [[ "${max_concurrent}" =~ ^[1-9][0-9]*$ ]]; then
+            max_concurrent=5
+          fi
+          if [[ "${comment_id}" =~ ^[0-9]+$ ]]; then
+            echo "mention_slot=$((comment_id % max_concurrent))" >> "$GITHUB_OUTPUT"
+          else
+            echo "mention_slot=0" >> "$GITHUB_OUTPUT"
+          fi
+
+          delimiter="GH_OUTPUT_$(cat /proc/sys/kernel/random/uuid)"
+          while grep -Fqx "${delimiter}" <<< "${comment_body_value}"; do
+            delimiter="GH_OUTPUT_$(cat /proc/sys/kernel/random/uuid)"
+          done
+          echo "comment_body<<${delimiter}" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "${comment_body_value}" >> "$GITHUB_OUTPUT"
+          echo "${delimiter}" >> "$GITHUB_OUTPUT"
+
+      - name: Check trigger
+        id: trigger
+        if: steps.ctx.outputs.skip != 'true'
+        shell: bash
+        env:
+          COMMENT_BODY: ${{ steps.ctx.outputs.comment_body }}
+          EVENT_ACTION: ${{ github.event.action }}
+          REVIEW_ON_PR_SYNCHRONIZE: ${{ inputs.review_on_pr_synchronize }}
+        run: |
+          set -euo pipefail
+
+          should_run=false
+          mode=""
+
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            if [[ "${EVENT_ACTION}" != "synchronize" || "${REVIEW_ON_PR_SYNCHRONIZE}" == "true" ]]; then
+              should_run=true
+              mode=auto
+            fi
+          else
+            actionable_mention=$(
+              python3 - <<'PY'
+          import os
+          import re
+
+          text = os.environ.get("COMMENT_BODY", "")
+          mention_re = re.compile(
+              r"(^|[^\S\r\n])@mobilint-review(?=[\s\W]|$)",
+              re.I | re.M,
+          )
+          fence_re = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
+          blockquote_re = re.compile(r"^[ \t]{0,3}>")
+          indented_code_re = re.compile(r"^(?: {4}|\t)")
+          inline_code_re = re.compile(r"(`+).*?\1")
+          visible_lines = []
+          fence_char = ""
+          fence_length = 0
+
+          for line in text.splitlines():
+              fence = fence_re.match(line)
+              if fence:
+                  marker = fence.group(1)
+                  if not fence_char:
+                      fence_char = marker[0]
+                      fence_length = len(marker)
+                  elif marker[0] == fence_char and len(marker) >= fence_length:
+                      fence_char = ""
+                      fence_length = 0
+                  continue
+              if fence_char or blockquote_re.match(line) or indented_code_re.match(line):
+                  continue
+              visible_lines.append(inline_code_re.sub("", line))
+
+          print("true" if mention_re.search("\n".join(visible_lines)) else "false")
+          PY
+            )
+            if [[ "${actionable_mention}" == "true" ]]; then
+              should_run=true
+              mode=mention
+            fi
+          fi
+
+          echo "should_run=${should_run}" >> "$GITHUB_OUTPUT"
+          echo "mode=${mode}" >> "$GITHUB_OUTPUT"
+
+      - name: Check trusted association
+        id: trust
+        if: steps.ctx.outputs.skip != 'true' && steps.trigger.outputs.should_run == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ steps.ctx.outputs.repo }}
+          TRIGGER_MODE: ${{ steps.trigger.outputs.mode }}
+          PR_AUTHOR_ASSOCIATION: ${{ steps.ctx.outputs.pr_author_association }}
+          PR_AUTHOR: ${{ steps.ctx.outputs.pr_author }}
+          COMMENTER: ${{ steps.ctx.outputs.commenter }}
+          COMMENTER_ASSOCIATION: ${{ steps.ctx.outputs.commenter_association }}
+          REVIEW_ON_MEMBER_PR_ONLY: ${{ inputs.review_on_member_pr_only }}
+        run: |
+          set -euo pipefail
+
+          pr_author_trusted=false
+          commenter_trusted=true
+          pr_allowed=false
+
+          case "${PR_AUTHOR_ASSOCIATION}" in
+            OWNER|MEMBER|COLLABORATOR)
+              pr_author_trusted=true
+              ;;
+          esac
+
+          # Some GitHub event payloads surface author_association inconsistently.
+          # Fall back to checking whether the PR author actually has repository access.
+          if [[ "${pr_author_trusted}" != "true" && -n "${PR_AUTHOR}" ]]; then
+            set +e
+            gh api "/repos/${REPO}/collaborators/${PR_AUTHOR}/permission" >/dev/null 2>&1
+            collaborator_check_exit=$?
+            set -e
+            if [[ ${collaborator_check_exit} -eq 0 ]]; then
+              pr_author_trusted=true
+            fi
+          fi
+
+          if [[ "${GITHUB_EVENT_NAME}" != "pull_request" ]]; then
+            commenter_trusted=false
+            case "${COMMENTER_ASSOCIATION}" in
+              OWNER|MEMBER|COLLABORATOR)
+                commenter_trusted=true
+                ;;
+            esac
+
+            if [[ "${commenter_trusted}" != "true" && -n "${COMMENTER}" ]]; then
+              set +e
+              gh api "/repos/${REPO}/collaborators/${COMMENTER}/permission" >/dev/null 2>&1
+              commenter_check_exit=$?
+              set -e
+              if [[ ${commenter_check_exit} -eq 0 ]]; then
+                commenter_trusted=true
+              fi
+            fi
+          fi
+
+          if [[ "${TRIGGER_MODE}" == "mention" ]]; then
+            pr_allowed="${commenter_trusted}"
+          elif [[ "${REVIEW_ON_MEMBER_PR_ONLY}" == "true" ]]; then
+            pr_allowed="${pr_author_trusted}"
+          else
+            pr_allowed=true
+          fi
+
+          echo "trust_debug pr_author=${PR_AUTHOR} pr_author_association=${PR_AUTHOR_ASSOCIATION} commenter=${COMMENTER} commenter_association=${COMMENTER_ASSOCIATION} mode=${TRIGGER_MODE}" >&2
+          echo "pr_author_trusted=${pr_author_trusted}" >> "$GITHUB_OUTPUT"
+          echo "commenter_trusted=${commenter_trusted}" >> "$GITHUB_OUTPUT"
+          echo "pr_allowed=${pr_allowed}" >> "$GITHUB_OUTPUT"
+
+      - name: Leave notice for untrusted PR
+        if: >
+          steps.ctx.outputs.skip != 'true' &&
+          steps.trigger.outputs.should_run == 'true' &&
+          steps.trust.outputs.pr_allowed != 'true' &&
+          inputs.post_untrusted_notice
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh pr comment "${{ steps.ctx.outputs.pr_number }}" \
+            --repo "${{ steps.ctx.outputs.repo }}" \
+            --body "👀 Automatic Codex review runs only for trusted organization members or repository collaborators."
+
+      - name: Announce draft skip
+        if: >
+          steps.ctx.outputs.skip != 'true' &&
+          steps.trigger.outputs.should_run == 'true' &&
+          steps.trust.outputs.pr_allowed == 'true' &&
+          inputs.skip_draft_pr &&
+          steps.ctx.outputs.pr_is_draft == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh pr comment "${{ steps.ctx.outputs.pr_number }}" \
+            --repo "${{ steps.ctx.outputs.repo }}" \
+            --body "📝 Skipping review because this PR is still in draft."
+
+      - name: Wait for official Codex review
+        if: >
+          github.event_name == 'pull_request' &&
+          steps.ctx.outputs.skip != 'true' &&
+          steps.trigger.outputs.should_run == 'true' &&
+          steps.trigger.outputs.mode == 'auto' &&
+          steps.trust.outputs.pr_allowed == 'true' &&
+          (!inputs.skip_draft_pr || steps.ctx.outputs.pr_is_draft != 'true')
+        shell: bash
+        env:
+          WAIT_MINUTES: ${{ inputs.official_review_wait_minutes }}
+        run: |
+          set -euo pipefail
+          wait_seconds=$(( WAIT_MINUTES * 60 ))
+          echo "Waiting ${WAIT_MINUTES} minute(s) for official Codex review before running self-hosted fallback."
+          sleep "${wait_seconds}"
+
+      - name: Decide fallback execution
+        id: fallback
+        if: >
+          steps.ctx.outputs.skip != 'true' &&
+          steps.trigger.outputs.should_run == 'true' &&
+          steps.trust.outputs.pr_allowed == 'true' &&
+          (!inputs.skip_draft_pr || steps.ctx.outputs.pr_is_draft != 'true') &&
+          (github.event_name == 'pull_request' || steps.trust.outputs.commenter_trusted == 'true') &&
+          (github.event_name == 'pull_request' || !contains(steps.ctx.outputs.commenter, '[bot]'))
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ steps.ctx.outputs.repo }}
+          PR_NUMBER: ${{ steps.ctx.outputs.pr_number }}
+          PR_HEAD_SHA: ${{ steps.ctx.outputs.pr_head_sha }}
+          PR_EVENT_TIME: ${{ steps.ctx.outputs.pr_event_time }}
+          TRIGGER_MODE: ${{ steps.trigger.outputs.mode }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${TRIGGER_MODE}" != "auto" ]]; then
+            echo "run_local=true" >> "$GITHUB_OUTPUT"
+            echo "reason=mention" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          official_bot_login='chatgpt-codex-connector[bot]'
+          limit_phrase='codex usage limits have been reached for code reviews.'
+          credits_phrase='credits must be used to enable repository wide code reviews.'
+
+          max_pages=3
+          per_page=100
+
+          collect_pages() {
+            local output_file="$1"
+            local endpoint="$2"
+            local accept_header="${3:-}"
+            local page=1
+            local collected=0
+            local page_file
+            local page_count
+
+            printf '[]\n' > "${output_file}"
+
+            while [[ ${page} -le ${max_pages} && ${collected} -lt $((max_pages * per_page)) ]]; do
+              page_file="$(mktemp)"
+              if [[ -n "${accept_header}" ]]; then
+                gh api "${endpoint}?per_page=${per_page}&page=${page}" -H "${accept_header}" > "${page_file}"
+              else
+                gh api "${endpoint}?per_page=${per_page}&page=${page}" > "${page_file}"
+              fi
+
+              page_count=$(jq 'length' "${page_file}")
+              if [[ "${page_count}" -eq 0 ]]; then
+                rm -f "${page_file}"
+                break
+              fi
+
+              jq -s 'add' "${output_file}" "${page_file}" > "${output_file}.tmp"
+              mv "${output_file}.tmp" "${output_file}"
+              rm -f "${page_file}"
+
+              collected=$((collected + page_count))
+              if [[ "${page_count}" -lt ${per_page} ]]; then
+                break
+              fi
+              page=$((page + 1))
+            done
+          }
+
+          collect_pages reviews.json "/repos/${REPO}/pulls/${PR_NUMBER}/reviews"
+          collect_pages comments.json "/repos/${REPO}/issues/${PR_NUMBER}/comments"
+          collect_pages reactions.json "/repos/${REPO}/issues/${PR_NUMBER}/reactions" "Accept: application/vnd.github+json"
+
+          echo "Fetched $(jq 'length' reviews.json) reviews, $(jq 'length' comments.json) comments, $(jq 'length' reactions.json) reactions while checking for official Codex output."
+
+          official_review_found=$(
+            jq -r \
+              --arg login "${official_bot_login}" \
+              --arg head "${PR_HEAD_SHA}" \
+              --arg event_time "${PR_EVENT_TIME}" \
+              --arg limit "${limit_phrase}" \
+              --arg credits "${credits_phrase}" '
+                any(.[];
+                  (((.user.login // "") | ascii_downcase) == $login) and
+                  (($event_time == "") or ((.submitted_at // "") >= $event_time)) and
+                  (($head == "") or ((.commit_id // "") == $head)) and
+                  (
+                    (((.body // "") | ascii_downcase | contains($limit)) or
+                    ((.body // "") | ascii_downcase | contains($credits))) | not
+                  )
+                )
+              ' reviews.json
+          )
+
+          official_limit_review=$(
+            jq -r \
+              --arg login "${official_bot_login}" \
+              --arg head "${PR_HEAD_SHA}" \
+              --arg event_time "${PR_EVENT_TIME}" \
+              --arg limit "${limit_phrase}" \
+              --arg credits "${credits_phrase}" '
+                any(.[];
+                  (((.user.login // "") | ascii_downcase) == $login) and
+                  (($event_time == "") or ((.submitted_at // "") >= $event_time)) and
+                  (($head == "") or ((.commit_id // "") == $head)) and
+                  (
+                    ((.body // "") | ascii_downcase | contains($limit)) or
+                    ((.body // "") | ascii_downcase | contains($credits))
+                  )
+                )
+              ' reviews.json
+          )
+
+          official_limit_comment=$(
+            jq -r \
+              --arg login "${official_bot_login}" \
+              --arg event_time "${PR_EVENT_TIME}" \
+              --arg limit "${limit_phrase}" \
+              --arg credits "${credits_phrase}" '
+                any(.[];
+                  (((.user.login // "") | ascii_downcase) == $login) and
+                  (($event_time == "") or ((.created_at // "") >= $event_time)) and
+                  (
+                    ((.body // "") | ascii_downcase | contains($limit)) or
+                    ((.body // "") | ascii_downcase | contains($credits))
+                  )
+                )
+              ' comments.json
+          )
+
+          official_thumbsup_reaction=$(
+            jq -r \
+              --arg login "${official_bot_login}" \
+              --arg event_time "${PR_EVENT_TIME}" '
+                any(.[];
+                  (((.user.login // "") | ascii_downcase) == $login) and
+                  ((.content // "") == "+1") and
+                  (($event_time == "") or ((.created_at // "") >= $event_time))
+                )
+              ' reactions.json
+          )
+
+          official_eyes_reaction=$(
+            jq -r \
+              --arg login "${official_bot_login}" \
+              --arg event_time "${PR_EVENT_TIME}" '
+                any(.[];
+                  (((.user.login // "") | ascii_downcase) == $login) and
+                  ((.content // "") == "eyes") and
+                  (($event_time == "") or ((.created_at // "") >= $event_time))
+                )
+              ' reactions.json
+          )
+
+          if [[ "${official_limit_review}" == "true" || "${official_limit_comment}" == "true" ]]; then
+            echo "run_local=true" >> "$GITHUB_OUTPUT"
+            echo "reason=official-usage-limit" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "${official_review_found}" == "true" || "${official_thumbsup_reaction}" == "true" || "${official_eyes_reaction}" == "true" ]]; then
+            echo "run_local=false" >> "$GITHUB_OUTPUT"
+            echo "reason=official-signal-found" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "run_local=true" >> "$GITHUB_OUTPUT"
+          echo "reason=no-official-review" >> "$GITHUB_OUTPUT"
+
+      - name: Log fallback skip
+        if: >
+          steps.ctx.outputs.skip != 'true' &&
+          steps.trigger.outputs.should_run == 'true' &&
+          steps.trust.outputs.pr_allowed == 'true' &&
+          (!inputs.skip_draft_pr || steps.ctx.outputs.pr_is_draft != 'true') &&
+          steps.fallback.outputs.run_local == 'false' &&
+          steps.fallback.outputs.reason == 'official-signal-found'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Skipping self-hosted review because an official Codex signal was already found for this PR update."
+
+      - name: Add eyes reaction while review is running
+        id: ack
+        if: >
+          steps.ctx.outputs.skip != 'true' &&
+          steps.trigger.outputs.should_run == 'true' &&
+          steps.trust.outputs.pr_allowed == 'true' &&
+          (!inputs.skip_draft_pr || steps.ctx.outputs.pr_is_draft != 'true') &&
+          steps.fallback.outputs.run_local == 'true' &&
+          (github.event_name == 'pull_request' || steps.trust.outputs.commenter_trusted == 'true') &&
+          (github.event_name == 'pull_request' || !contains(steps.ctx.outputs.commenter, '[bot]'))
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          case "${GITHUB_EVENT_NAME}" in
+            issue_comment)
+              endpoint="/repos/${{ steps.ctx.outputs.repo }}/issues/comments/${{ steps.ctx.outputs.comment_id }}/reactions"
+              reaction_target="issue_comment"
+              ;;
+            pull_request_review_comment)
+              endpoint="/repos/${{ steps.ctx.outputs.repo }}/pulls/comments/${{ steps.ctx.outputs.comment_id }}/reactions"
+              reaction_target="review_comment"
+              ;;
+            *)
+              endpoint="/repos/${{ steps.ctx.outputs.repo }}/issues/${{ steps.ctx.outputs.pr_number }}/reactions"
+              reaction_target="issue"
+              ;;
+          esac
+
+          response=$(gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "${endpoint}" \
+            -f content='eyes')
+          reaction_id=$(jq -r '.id // ""' <<< "${response}")
+          if [[ -z "${reaction_id}" ]]; then
+            echo "Failed to obtain the temporary eyes reaction ID." >&2
+            exit 1
+          fi
+
+          echo "reaction_id=${reaction_id}" >> "$GITHUB_OUTPUT"
+          echo "reaction_target=${reaction_target}" >> "$GITHUB_OUTPUT"
+
+  run-review:
+    needs: gate
+    if: needs.gate.outputs.run_local == 'true'
+    concurrency:
+      group: >-
+        ${{ needs.gate.outputs.mode == 'mention'
+          && format('codex-review-mention-{0}-{1}-{2}', needs.gate.outputs.repo, needs.gate.outputs.pr_number, needs.gate.outputs.mention_slot)
+          || format('codex-review-run-{0}-{1}', needs.gate.outputs.repo, needs.gate.outputs.pr_number) }}
+      cancel-in-progress: false
+    runs-on:
+      group: codex
+      labels: codex-reviewer
+    timeout-minutes: 45
+
+    steps:
+      - name: Run Codex review
+        uses: mobilint/codex-review-action@main
+        with:
+          repo: ${{ needs.gate.outputs.repo }}
+          pr_number: ${{ needs.gate.outputs.pr_number }}
+          event_name: ${{ needs.gate.outputs.event_name }}
+          mode: ${{ needs.gate.outputs.mode }}
+          comment_id: ${{ needs.gate.outputs.comment_id }}
+          commenter: ${{ needs.gate.outputs.commenter }}
+          ack_reaction_id: ${{ needs.gate.outputs.ack_reaction_id }}
+          ack_reaction_target: ${{ needs.gate.outputs.ack_reaction_target }}
+          max_files: ${{ inputs.max_files }}
+          max_diff_chars: ${{ inputs.max_diff_chars }}
+          sandbox_mode: read-only
+          allow_unsafe_no_sandbox_fallback: ${{ inputs.allow_unsafe_no_sandbox_fallback }}
+
+  post-failure:
+    needs:
+      - gate
+      - run-review
+    if: always() && needs.gate.outputs.run_local == 'true' && needs.run-review.result == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Post failure note
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          reaction_id="${{ needs.gate.outputs.ack_reaction_id }}"
+          reaction_target="${{ needs.gate.outputs.ack_reaction_target }}"
+          if [[ -n "${reaction_id}" ]]; then
+            case "${reaction_target}" in
+              issue)
+                endpoint="/repos/${{ needs.gate.outputs.repo }}/issues/${{ needs.gate.outputs.pr_number }}/reactions/${reaction_id}"
+                ;;
+              issue_comment)
+                endpoint="/repos/${{ needs.gate.outputs.repo }}/issues/comments/${{ needs.gate.outputs.comment_id }}/reactions/${reaction_id}"
+                ;;
+              review_comment)
+                endpoint="/repos/${{ needs.gate.outputs.repo }}/pulls/comments/${{ needs.gate.outputs.comment_id }}/reactions/${reaction_id}"
+                ;;
+              *)
+                endpoint=""
+                ;;
+            esac
+            if [[ -n "${endpoint}" ]]; then
+              gh api --method DELETE -H "Accept: application/vnd.github+json" "${endpoint}" >/dev/null 2>&1 || true
+            fi
+          fi
+
+          gh pr comment "${{ needs.gate.outputs.pr_number }}" \
+            --repo "${{ needs.gate.outputs.repo }}" \
+            --body "⚠️ Codex review did not complete successfully."

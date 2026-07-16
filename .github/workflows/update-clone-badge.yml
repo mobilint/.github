@@ -1,0 +1,122 @@
+name: Update clone badge
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 매일 00:15 UTC에 실행
+    - cron: "15 0 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-clone-badge
+  cancel-in-progress: false
+
+env:
+  SOURCE_BRANCH: main
+  BADGE_BRANCH: badges
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Fetch clone statistics
+        env:
+          TRAFFIC_TOKEN: ${{ secrets.TRAFFIC_TOKEN }}
+        run: |
+          response="$(
+            curl --fail --silent --show-error --location \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${TRAFFIC_TOKEN}" \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/traffic/clones"
+          )"
+
+          clone_count="$(jq -er '.count' <<< "${response}")"
+          unique_count="$(jq -er '.uniques' <<< "${response}")"
+
+          jq -n \
+            --arg message "${clone_count} total / ${unique_count} unique" \
+            '{
+              schemaVersion: 1,
+              label: "clones (14 days)",
+              message: $message,
+              color: "blue",
+              cacheSeconds: 3600
+            }' > "${RUNNER_TEMP}/clones.json"
+
+      - name: Checkout badge branch and merge main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin \
+            "${SOURCE_BRANCH}:refs/remotes/origin/${SOURCE_BRANCH}"
+
+          if git ls-remote \
+            --exit-code \
+            --heads \
+            origin \
+            "${BADGE_BRANCH}" >/dev/null 2>&1; then
+
+            git fetch origin \
+              "${BADGE_BRANCH}:refs/remotes/origin/${BADGE_BRANCH}"
+
+            git switch \
+              --force-create "${BADGE_BRANCH}" \
+              "origin/${BADGE_BRANCH}"
+
+            if git merge-base \
+              HEAD \
+              "origin/${SOURCE_BRANCH}" >/dev/null 2>&1; then
+              git merge \
+                --no-edit \
+                "origin/${SOURCE_BRANCH}"
+            else
+              git merge \
+                --no-edit \
+                --allow-unrelated-histories \
+                "origin/${SOURCE_BRANCH}"
+            fi
+          else
+            git switch --orphan "${BADGE_BRANCH}"
+            git rm -r --force --ignore-unmatch .
+
+            mkdir -p .github/badges
+            cp "${RUNNER_TEMP}/clones.json" \
+              .github/badges/clones.json
+            git add .github/badges/clones.json
+            git commit -m "chore: initialize clone badge [skip ci]"
+
+            git merge \
+              --no-edit \
+              --allow-unrelated-histories \
+              "origin/${SOURCE_BRANCH}"
+          fi
+
+      - name: Update badge data
+        run: |
+          mkdir -p .github/badges
+
+          cp "${RUNNER_TEMP}/clones.json" \
+            .github/badges/clones.json
+
+          git add .github/badges/clones.json
+
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update clone badge [skip ci]"
+          else
+            echo "Clone badge data has not changed."
+          fi
+
+      - name: Push badge branch
+        run: |
+          git push origin "HEAD:${BADGE_BRANCH}"
