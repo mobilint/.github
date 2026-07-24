@@ -600,20 +600,35 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ steps.ctx.outputs.repo }}
+          PR_NUMBER: ${{ steps.ctx.outputs.pr_number }}
+          COMMENT_ID: ${{ steps.ctx.outputs.comment_id }}
         run: |
           set -euo pipefail
 
           case "${GITHUB_EVENT_NAME}" in
             issue_comment)
-              endpoint="/repos/${{ steps.ctx.outputs.repo }}/issues/comments/${{ steps.ctx.outputs.comment_id }}/reactions"
+              if ! [[ "${COMMENT_ID}" =~ ^[1-9][0-9]*$ ]]; then
+                echo "Cannot add eyes reaction: invalid comment ID." >&2
+                exit 1
+              fi
+              endpoint="/repos/${REPO}/issues/comments/${COMMENT_ID}/reactions"
               reaction_target="issue_comment"
               ;;
             pull_request_review_comment)
-              endpoint="/repos/${{ steps.ctx.outputs.repo }}/pulls/comments/${{ steps.ctx.outputs.comment_id }}/reactions"
+              if ! [[ "${COMMENT_ID}" =~ ^[1-9][0-9]*$ ]]; then
+                echo "Cannot add eyes reaction: invalid review comment ID." >&2
+                exit 1
+              fi
+              endpoint="/repos/${REPO}/pulls/comments/${COMMENT_ID}/reactions"
               reaction_target="review_comment"
               ;;
             *)
-              endpoint="/repos/${{ steps.ctx.outputs.repo }}/issues/${{ steps.ctx.outputs.pr_number }}/reactions"
+              if ! [[ "${PR_NUMBER}" =~ ^[1-9][0-9]*$ ]]; then
+                echo "Cannot add eyes reaction: invalid pull request number." >&2
+                exit 1
+              fi
+              endpoint="/repos/${REPO}/issues/${PR_NUMBER}/reactions"
               reaction_target="issue"
               ;;
           esac
@@ -624,8 +639,8 @@ jobs:
             "${endpoint}" \
             -f content='eyes')
           reaction_id=$(jq -r '.id // ""' <<< "${response}")
-          if [[ -z "${reaction_id}" ]]; then
-            echo "Failed to obtain the temporary eyes reaction ID." >&2
+          if ! [[ "${reaction_id}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Failed to obtain a valid temporary eyes reaction ID." >&2
             exit 1
           fi
 
@@ -676,31 +691,53 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ needs.gate.outputs.repo }}
+          PR_NUMBER: ${{ needs.gate.outputs.pr_number }}
+          COMMENT_ID: ${{ needs.gate.outputs.comment_id }}
+          REACTION_ID: ${{ needs.gate.outputs.ack_reaction_id }}
+          REACTION_TARGET: ${{ needs.gate.outputs.ack_reaction_target }}
         run: |
           set -euo pipefail
 
-          reaction_id="${{ needs.gate.outputs.ack_reaction_id }}"
-          reaction_target="${{ needs.gate.outputs.ack_reaction_target }}"
-          if [[ -n "${reaction_id}" ]]; then
-            case "${reaction_target}" in
+          endpoint=""
+          if [[ -n "${REACTION_ID}" ]]; then
+            if ! [[ "${REACTION_ID}" =~ ^[1-9][0-9]*$ ]]; then
+              echo "Skipping eyes reaction cleanup: invalid reaction ID." >&2
+            else
+              case "${REACTION_TARGET}" in
               issue)
-                endpoint="/repos/${{ needs.gate.outputs.repo }}/issues/${{ needs.gate.outputs.pr_number }}/reactions/${reaction_id}"
+                if [[ "${PR_NUMBER}" =~ ^[1-9][0-9]*$ ]]; then
+                  endpoint="/repos/${REPO}/issues/${PR_NUMBER}/reactions/${REACTION_ID}"
+                fi
                 ;;
               issue_comment)
-                endpoint="/repos/${{ needs.gate.outputs.repo }}/issues/comments/${{ needs.gate.outputs.comment_id }}/reactions/${reaction_id}"
+                if [[ "${COMMENT_ID}" =~ ^[1-9][0-9]*$ ]]; then
+                  endpoint="/repos/${REPO}/issues/comments/${COMMENT_ID}/reactions/${REACTION_ID}"
+                fi
                 ;;
               review_comment)
-                endpoint="/repos/${{ needs.gate.outputs.repo }}/pulls/comments/${{ needs.gate.outputs.comment_id }}/reactions/${reaction_id}"
+                if [[ "${COMMENT_ID}" =~ ^[1-9][0-9]*$ ]]; then
+                  endpoint="/repos/${REPO}/pulls/comments/${COMMENT_ID}/reactions/${REACTION_ID}"
+                fi
                 ;;
               *)
-                endpoint=""
+                echo "Skipping eyes reaction cleanup: invalid reaction target." >&2
                 ;;
-            esac
-            if [[ -n "${endpoint}" ]]; then
-              gh api --method DELETE -H "Accept: application/vnd.github+json" "${endpoint}" >/dev/null 2>&1 || true
+              esac
             fi
           fi
 
-          gh pr comment "${{ needs.gate.outputs.pr_number }}" \
-            --repo "${{ needs.gate.outputs.repo }}" \
+          if [[ -n "${endpoint}" ]]; then
+            gh api --method DELETE -H "Accept: application/vnd.github+json" "${endpoint}" >/dev/null 2>&1 || true
+          elif [[ -n "${REACTION_ID}" && "${REACTION_ID}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Skipping eyes reaction cleanup: invalid target identifier." >&2
+          fi
+
+          if ! [[ "${PR_NUMBER}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Cannot post failure note: invalid pull request number." >&2
+            exit 1
+          fi
+
+          gh pr comment "${PR_NUMBER}" \
+            --repo "${REPO}" \
             --body "⚠️ Codex review did not complete successfully."
