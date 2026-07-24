@@ -222,10 +222,42 @@ jobs:
           fence_re = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
           blockquote_re = re.compile(r"^[ \t]{0,3}>")
           indented_code_re = re.compile(r"^(?: {4}|\t)")
-          inline_code_re = re.compile(r"(`+).*?\1")
           visible_lines = []
           fence_char = ""
           fence_length = 0
+
+          def strip_inline_code(line):
+              visible = []
+              copy_from = 0
+              opener_start = -1
+              opener_length = 0
+              index = 0
+
+              while index < len(line):
+                  if line[index] != "`":
+                      index += 1
+                      continue
+
+                  run_start = index
+                  while index < len(line) and line[index] == "`":
+                      index += 1
+                  run_length = index - run_start
+
+                  if opener_start < 0:
+                      visible.append(line[copy_from:run_start])
+                      opener_start = run_start
+                      opener_length = run_length
+                  elif run_length == opener_length:
+                      opener_start = -1
+                      opener_length = 0
+                      copy_from = index
+
+              if opener_start >= 0:
+                  visible.append(line[opener_start:])
+              else:
+                  visible.append(line[copy_from:])
+
+              return "".join(visible)
 
           for line in text.splitlines():
               fence = fence_re.match(line)
@@ -240,7 +272,7 @@ jobs:
                   continue
               if fence_char or blockquote_re.match(line) or indented_code_re.match(line):
                   continue
-              visible_lines.append(inline_code_re.sub("", line))
+              visible_lines.append(strip_inline_code(line))
 
           print("true" if mention_re.search("\n".join(visible_lines)) else "false")
           PY
