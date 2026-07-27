@@ -1,0 +1,4 @@
+interface:
+  display_name: "Maintain Review Automation"
+  short_description: "Safely update shared Codex review workflows"
+  default_prompt: "Use $maintain-review-automation to update the shared review workflow and its documentation safely."

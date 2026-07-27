@@ -1,0 +1,43 @@
+name: Check agent guides
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Verify Codex and Claude guides are synchronized
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          check_pair() {
+            local codex_file="$1"
+            local claude_file="$2"
+
+            if ! cmp -s "${codex_file}" "${claude_file}"; then
+              echo "::error::${codex_file} and ${claude_file} must be updated together"
+              diff -u "${codex_file}" "${claude_file}" || true
+              return 1
+            fi
+          }
+
+          check_pair AGENTS.md CLAUDE.md
+          check_pair \
+            .agents/skills/maintain-review-automation/SKILL.md \
+            .claude/skills/maintain-review-automation/SKILL.md
+          check_pair \
+            .agents/skills/maintain-review-automation/agents/openai.yaml \
+            .claude/skills/maintain-review-automation/agents/openai.yaml
