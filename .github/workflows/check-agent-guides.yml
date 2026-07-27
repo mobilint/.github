@@ -17,19 +17,47 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Verify Codex and Claude guides are synchronized
         shell: bash
         run: |
           set -euo pipefail
 
+          tracked_blob_oid() {
+            local path="$1"
+            local entry mode oid stage tracked_path
+
+            entry="$(git ls-files --stage -- "${path}")"
+            if [[ -z "${entry}" || "${entry}" == *$'\n'* ]]; then
+              echo "::error::${path} must have exactly one tracked index entry" >&2
+              return 1
+            fi
+
+            IFS=$' \t' read -r mode oid stage tracked_path <<< "${entry}"
+            if [[ "${mode}" != "100644" || "${stage}" != "0" || "${tracked_path}" != "${path}" ]]; then
+              echo "::error::${path} must be a regular tracked 100644 file" >&2
+              return 1
+            fi
+
+            printf '%s\n' "${oid}"
+          }
+
           check_pair() {
             local codex_file="$1"
             local claude_file="$2"
+            local codex_oid claude_oid
 
-            if ! cmp -s "${codex_file}" "${claude_file}"; then
+            if ! codex_oid="$(tracked_blob_oid "${codex_file}")"; then
+              return 1
+            fi
+            if ! claude_oid="$(tracked_blob_oid "${claude_file}")"; then
+              return 1
+            fi
+
+            if [[ "${codex_oid}" != "${claude_oid}" ]]; then
               echo "::error::${codex_file} and ${claude_file} must be updated together"
-              diff -u "${codex_file}" "${claude_file}" || true
               return 1
             fi
           }

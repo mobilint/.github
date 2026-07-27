@@ -70,6 +70,9 @@ Do not assume a change in only one repository completes the feature.
 - Validate numeric GitHub identifiers before interpolating them into API paths.
 - Keep mention parsing linear-time and avoid backtracking regular expressions
   over attacker-controlled comments.
+- In pull-request checks, never dereference or print repository paths before
+  proving they are regular tracked files. Compare trusted Git index metadata or
+  blob IDs, and disable checkout credential persistence when it is unnecessary.
 
 ## Workflow Editing Rules
 
