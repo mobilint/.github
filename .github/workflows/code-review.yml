@@ -11,7 +11,7 @@ on:
       - created
   pull_request_review:
     types:
-      - created
+      - submitted
   pull_request_review_comment:
     types:
       - created
@@ -32,5 +32,5 @@ jobs:
       max_diff_chars: 200000
       official_review_wait_minutes: 5
       review_on_pr_synchronize: false
-      allow_unsafe_no_sandbox_fallback: true
+      allow_unsafe_no_sandbox_fallback: false
       max_concurrent_mention_reviews: 5
