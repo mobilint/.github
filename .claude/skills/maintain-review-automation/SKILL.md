@@ -40,6 +40,8 @@ templates, formatter, and tests whenever the shared contract is affected.
 - Ignore quoted and code-formatted mentions with linear-time parsing.
 - Validate GitHub identifiers before API path interpolation.
 - Keep finding and payload limits explicit.
+- Use `submitted` for pull request reviews and `created` for individual review
+  comments and issue comments.
 - Keep clone badge output on the orphan `badges` branch.
 - Use `actions/checkout@v6`.
 

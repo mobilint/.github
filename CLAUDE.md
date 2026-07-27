@@ -78,6 +78,8 @@ Do not assume a change in only one repository completes the feature.
 - Pass untrusted or externally derived values through `env` rather than
   interpolating GitHub expressions directly into shell code.
 - Use quoted shell expansions and `set -euo pipefail`.
+- Use `submitted` for `pull_request_review`; use `created` for
+  `pull_request_review_comment` and `issue_comment`.
 - Use current action majors that run on the supported GitHub Actions Node.js
   runtime; use `actions/checkout@v6`.
 - Keep the canonical caller conservative because it is copied to other
