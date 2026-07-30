@@ -33,7 +33,9 @@ the same change and run the synchronization workflow before finishing.
   generated data to the orphan `badges` branch.
 - `.github/workflows/check-agent-guides.yml`: CI guard that requires the Codex
   and Claude guide and skill copies to remain byte-identical.
-- `README.md`: repository landing page and clone badge.
+- `README.md`: user-facing repository overview and clone badge.
+- `.github/README.md`: maintainer architecture, synchronization, GitHub App,
+  validation, release, and rollback guide.
 - `profile/README.md`: Mobilint organization profile.
 - `assets/`: organization profile assets.
 - `.agents/skills/maintain-review-automation/`: Codex maintenance skill.
@@ -125,9 +127,11 @@ Before finishing any repository change, check whether it changes:
 - sandbox, trust, token, or API-path security boundaries;
 - validation commands or deployment procedures.
 
-If so, update `AGENTS.md`, `CLAUDE.md`, and both copies of the maintenance
-skill in the same commit. Keep each mirrored pair byte-identical. Do not update
-only the Codex or only the Claude copy.
+Keep public behavior and usage in `README.md`; keep maintainer operations, CI,
+release, and rollback procedures in `.github/README.md`. Update `AGENTS.md`,
+`CLAUDE.md`, and both copies of the maintenance skill in the same commit. Keep
+each mirrored pair byte-identical. Do not update only the Codex or only the
+Claude copy.
 
 ## Validation
 

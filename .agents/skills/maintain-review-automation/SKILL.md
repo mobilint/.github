@@ -64,7 +64,8 @@ templates, formatter, and tests whenever the shared contract is affected.
 After changing repository behavior, layout, contracts, defaults, security
 boundaries, or validation:
 
-1. Update `README.md` when user-facing behavior changed.
+1. Update `README.md` for user-facing behavior and `.github/README.md` for
+   maintainer architecture, operation, CI, release, or rollback changes.
 2. Update both `AGENTS.md` and `CLAUDE.md`.
 3. Update this skill and
    `.claude/skills/maintain-review-automation/SKILL.md`.
