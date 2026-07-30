@@ -29,7 +29,6 @@ jobs:
             %w[
               .github/workflows/code-review.yml
               .github/workflows/codex-pr-review.yml
-              .github/workflows/sync-code-review-callers.yml
               workflow-templates/code-review.yml
             ].each { |path| YAML.load_file(path) }
             puts "workflow YAML OK"

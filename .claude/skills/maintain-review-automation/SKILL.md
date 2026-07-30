@@ -47,11 +47,8 @@ templates, formatter, and tests whenever the shared contract is affected.
   reusable-workflow call. Do not duplicate policy inputs.
 - Distribute callers through the manifest and idempotent automation pull
   requests; never write a consumer default branch.
-- Keep GitHub App permissions limited to Actions read, Contents write, Pull
-  requests write, and Workflows write, with installation scope limited to
-  managed repositories.
-- Pin secret-bearing third-party actions to immutable commit SHAs and derive
-  GitHub App token repository scope from enabled manifest entries.
+- Keep caller audits and synchronization operator-run. Do not add an unattended
+  cross-repository credential workflow.
 - Use `submitted` for pull request reviews and `created` for individual review
   comments and issue comments.
 - Keep clone badge output on the orphan `badges` branch.

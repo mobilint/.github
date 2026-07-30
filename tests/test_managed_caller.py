@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CANONICAL = ROOT / "workflow-templates" / "code-review.yml"
 EXAMPLE = ROOT / ".github" / "workflows" / "code-review.yml"
 REUSABLE = ROOT / ".github" / "workflows" / "codex-pr-review.yml"
-SYNCHRONIZER = ROOT / ".github" / "workflows" / "sync-code-review-callers.yml"
+APP_SYNCHRONIZER = ROOT / ".github" / "workflows" / "sync-code-review-callers.yml"
 
 
 class ManagedCallerTests(unittest.TestCase):
@@ -103,22 +103,8 @@ class ManagedCallerTests(unittest.TestCase):
             self.assertIn(fragment, text)
         self.assertNotIn("pull_request_target", text)
 
-    def test_sync_credential_actions_are_pinned_and_manifest_scoped(self) -> None:
-        text = SYNCHRONIZER.read_text(encoding="utf-8")
-        for action in ("actions/checkout", "actions/create-github-app-token"):
-            self.assertRegex(
-                text,
-                rf"uses: {re.escape(action)}@[0-9a-f]{{40}}(?:\s|#)",
-            )
-        self.assertIn(
-            "repositories: ${{ steps.app-scope.outputs.repositories }}",
-            text,
-        )
-        self.assertIn("--print-app-repositories", text)
-        self.assertNotRegex(
-            text,
-            r"uses: actions/(?:checkout|create-github-app-token)@v[0-9]+",
-        )
+    def test_unattended_app_synchronizer_is_not_installed(self) -> None:
+        self.assertFalse(APP_SYNCHRONIZER.exists())
 
 
 if __name__ == "__main__":

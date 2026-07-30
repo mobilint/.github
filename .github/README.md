@@ -21,8 +21,8 @@ not start automatic reviews unless central policy changes or a legacy caller
 explicitly opts in.
 
 The gate runs on GitHub-hosted infrastructure before untrusted PR content can
-reach the self-hosted runner. The synchronization workflow never checks out
-consumer repositories or executes their code.
+reach the self-hosted runner. Caller distribution is an operator-run maintenance
+task; no GitHub App or scheduled cross-repository writer is used.
 
 ## Canonical managed caller
 
@@ -80,10 +80,10 @@ Edit `config/code-review-repositories.json`.
 The manifest contains an explicit snapshot of all 21 Mobilint repositories as
 of 2026-07-30. Seventeen active repositories are enabled. Four archived
 repositories remain listed with `enabled: false`, so they are visible in policy
-without entering the GitHub App token scope. New organization repositories
-must still be added deliberately.
+without entering routine audits. New organization repositories must still be
+added deliberately.
 
-## Synchronization operation
+## Manual audit and synchronization
 
 `scripts/sync_code_review_callers.py` discovers each repository's default
 branch through the GitHub API, classifies the caller, and creates or updates the
@@ -91,61 +91,34 @@ deterministic `automation/sync-codex-review` branch and one pull request. It
 never writes the default branch. Existing automation PRs are reused, and an
 already-current branch produces no commit or metadata update.
 
-The command prints JSON to stdout and a Markdown summary to stderr:
+Run it from a trusted administrator workstation or the existing maintenance
+server using an explicitly authenticated `gh` session. It is not invoked by
+GitHub Actions. The command prints JSON to stdout and a Markdown summary to
+stderr:
 
 ```bash
-GH_TOKEN=... python3 scripts/sync_code_review_callers.py \
+GH_TOKEN="$(gh auth token)" python3 scripts/sync_code_review_callers.py \
   --dry-run \
   --repository mobilint/mblt-model-zoo
 ```
 
 Use `--check` for a read-only audit that exits nonzero on drift. Omit both
-`--dry-run` and `--check` to apply. `--json-output` and `--summary-output` write
-the two report formats to files.
+`--dry-run` and `--check` to apply, and do that only after reviewing the
+selected repository and current authentication scope. `--json-output` and
+`--summary-output` write the two report formats to files. Archived repositories
+and repositories with Actions disabled are reported and skipped; an API failure
+is isolated to its repository.
 
-`.github/workflows/sync-code-review-callers.yml` applies changes after relevant
-central files merge to `main`, audits once daily at 02:43 UTC, and supports a
-manual dry run or one-repository selection. Workflow concurrency prevents
-racing sync runs. Archived repositories and repositories with Actions disabled
-are reported and skipped; an API failure is isolated to its repository.
-
-## GitHub App setup
-
-Create a GitHub App dedicated to caller synchronization and install it only on
-the repositories listed in the manifest. Configure:
-
-- repository variable `CODE_REVIEW_SYNC_APP_CLIENT_ID`;
-- Actions secret `CODE_REVIEW_SYNC_APP_PRIVATE_KEY`.
-
-Grant only these repository permissions:
-
-- Actions: read, to detect repositories where Actions is disabled;
-- Contents: write, to read content and create/update the automation branch;
-- Pull requests: write, to create and update migration PRs;
-- Workflows: write, which GitHub requires for changes under
-  `.github/workflows`.
-
-Metadata read is implicit for GitHub Apps. Do not use a personal access token as
-the scheduled workflow credential, and do not install the App on repositories
-that are not managed. Secret-bearing actions are pinned to immutable commit
-SHAs. The workflow derives the minted token's `repositories` scope from enabled
-manifest entries, or from the one explicitly selected enrolled repository.
-Installation scope remains the primary boundary because the App private key can
-mint tokens only for repositories where the App is installed.
-
-See GitHub's documentation for
-[choosing App permissions](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app)
-and the maintained
-[`actions/create-github-app-token`](https://github.com/actions/create-github-app-token)
-action. GitHub explicitly requires the Workflows repository permission to edit
-files under `.github/workflows`.
+Normal caller updates may also be copied manually. Do not configure
+`CODE_REVIEW_SYNC_APP_CLIENT_ID` or `CODE_REVIEW_SYNC_APP_PRIVATE_KEY`; this
+repository deliberately has no unattended App-based synchronizer.
 
 ## Validation
 
 ```bash
 python3 -m unittest discover -s tests -v
 python3 -m compileall -q scripts tests
-python3 -c "import yaml; [yaml.safe_load(open(path, encoding='utf-8')) for path in ['.github/workflows/code-review.yml', '.github/workflows/codex-pr-review.yml', '.github/workflows/sync-code-review-callers.yml', 'workflow-templates/code-review.yml']]"
+python3 -c "import yaml; [yaml.safe_load(open(path, encoding='utf-8')) for path in ['.github/workflows/code-review.yml', '.github/workflows/codex-pr-review.yml', 'workflow-templates/code-review.yml']]"
 cmp workflow-templates/code-review.yml .github/workflows/code-review.yml
 git diff --check
 ```
@@ -163,7 +136,7 @@ has a validated `stable` branch. The release sequence is:
 3. Create and protect `stable` branches in both central repositories.
 4. Change the reusable workflow to call the action at `@stable`.
 5. Change the canonical caller to call the reusable workflow at `@stable`.
-6. Let synchronization distribute that caller change through PRs.
+6. Copy the updated caller manually or run the local synchronizer explicitly.
 
 Organization administrators must create branch protection for both `stable`
 branches, require the repositories' CI checks and reviews, restrict direct
@@ -172,13 +145,13 @@ settings by itself.
 
 ## Rollback
 
-- Before merge, close the consumer synchronization PR.
+- Before merge, close any manually created consumer synchronization PR.
 - After merge, revert the managed caller commit in the consumer and set its
   manifest entry to `enabled: false` before the next sync.
 - To roll back central policy, revert the reusable workflow commit; consumers
   using `@main` receive the rollback without caller changes.
-- To roll back a caller schema, revert the canonical template and let the
-  synchronizer open or update consumer PRs.
+- To roll back a caller schema, revert the canonical template and manually
+  update affected consumer callers.
 
 Comment/review events that require default-branch workflows will not run until
 the managed caller has merged into the consumer's default branch.

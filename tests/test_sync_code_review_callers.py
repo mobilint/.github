@@ -132,23 +132,14 @@ def config(
 
 
 class SynchronizerTests(unittest.TestCase):
-    def test_app_scope_contains_only_enabled_manifest_repositories(self) -> None:
+    def test_repository_selection_is_explicit(self) -> None:
         repositories = [
             config("mobilint/first", enabled=True),
             config("mobilint/disabled", enabled=False),
             config("mobilint/second", enabled=True),
         ]
-        self.assertEqual(
-            sync.github_app_repository_scope(repositories),
-            "first,second",
-        )
         selected = sync.select_repositories(repositories, "mobilint/second")
-        self.assertEqual(sync.github_app_repository_scope(selected), "second")
-
-    def test_app_scope_rejects_disabled_or_unenrolled_selection(self) -> None:
-        repositories = [config("mobilint/disabled", enabled=False)]
-        with self.assertRaisesRegex(ValueError, "no enabled"):
-            sync.github_app_repository_scope(repositories)
+        self.assertEqual([entry.name for entry in selected], ["mobilint/second"])
         with self.assertRaisesRegex(ValueError, "not enrolled"):
             sync.select_repositories(repositories, "mobilint/other")
 

@@ -3,11 +3,3 @@ self-hosted-runner:
     - codex-reviewer
 
 config-variables: null
-
-paths:
-  .github/workflows/sync-code-review-callers.yml:
-    # actionlint 1.7.12 bundles the pre-client-id v3 metadata. The live v3
-    # action manifest accepts client-id and deprecates app-id.
-    ignore:
-      - 'missing input "app-id"'
-      - 'input "client-id" is not defined'

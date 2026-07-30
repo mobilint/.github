@@ -30,10 +30,10 @@ The managed caller supports:
 
 The official workflow template is
 [`workflow-templates/code-review.yml`](workflow-templates/code-review.yml).
-Only repositories explicitly enrolled by Mobilint maintainers are synchronized,
-and changes are proposed through pull requests rather than pushed to consumer
-default branches.
+Mobilint maintainers copy this caller into consumer repositories. The manifest
+and local audit tool help detect drift, but no unattended cross-repository
+credential workflow is installed.
 
 Maintainers should use the
 [automation operations guide](.github/README.md) for architecture, enrollment,
-GitHub App setup, validation, release, and rollback procedures.
+manual synchronization, validation, release, and rollback procedures.

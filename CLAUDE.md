@@ -20,8 +20,6 @@ the same change and run the synchronization workflow before finishing.
   and official organization workflow template.
 - `workflow-templates/code-review.properties.json`: organization template
   metadata.
-- `.github/workflows/sync-code-review-callers.yml`: GitHub App authenticated
-  scheduled/manual caller distributor.
 - `.github/workflows/check-code-review-sync.yml`: caller, contract, YAML, and
   synchronization test workflow.
 - `config/code-review-repositories.json`: explicit managed-repository manifest.
@@ -34,7 +32,7 @@ the same change and run the synchronization workflow before finishing.
 - `.github/workflows/check-agent-guides.yml`: CI guard that requires the Codex
   and Claude guide and skill copies to remain byte-identical.
 - `README.md`: user-facing repository overview and clone badge.
-- `.github/README.md`: maintainer architecture, synchronization, GitHub App,
+- `.github/README.md`: maintainer architecture, manual synchronization,
   validation, release, and rollback guide.
 - `profile/README.md`: Mobilint organization profile.
 - `assets/`: organization profile assets.
@@ -115,9 +113,8 @@ Do not assume a change in only one repository completes the feature.
   `workflow-templates/code-review.yml` and keep the example byte-identical.
 - Synchronize consumers only through deterministic branches and pull requests;
   never push their default branches.
-- Use the dedicated least-privilege GitHub App for cross-repository writes.
-- Pin secret-bearing third-party actions to immutable commit SHAs and derive
-  App-token repository scope from enabled manifest entries.
+- Do not add an unattended cross-repository credential workflow. Caller audits
+  and synchronization are explicit operator-run maintenance tasks.
 
 ## Documentation Maintenance
 
