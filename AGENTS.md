@@ -116,6 +116,8 @@ Do not assume a change in only one repository completes the feature.
 - Synchronize consumers only through deterministic branches and pull requests;
   never push their default branches.
 - Use the dedicated least-privilege GitHub App for cross-repository writes.
+- Pin secret-bearing third-party actions to immutable commit SHAs and derive
+  App-token repository scope from enabled manifest entries.
 
 ## Documentation Maintenance
 

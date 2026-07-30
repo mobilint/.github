@@ -330,6 +330,38 @@ def load_manifest(path: Path) -> list[RepositoryConfig]:
     return repositories
 
 
+def select_repositories(
+    repositories: list[RepositoryConfig],
+    selected: str | None,
+) -> list[RepositoryConfig]:
+    """Select one enrolled repository without broadening manifest scope."""
+    if not selected:
+        return repositories
+    validate_repository_name(selected)
+    matches = [
+        repository
+        for repository in repositories
+        if repository.name == selected
+    ]
+    if not matches:
+        raise ValueError(f"repository is not enrolled: {selected}")
+    return matches
+
+
+def github_app_repository_scope(
+    repositories: list[RepositoryConfig],
+) -> str:
+    """Return the enabled repository slugs accepted by the token action."""
+    enabled = [
+        repository.name.removeprefix("mobilint/")
+        for repository in repositories
+        if repository.enabled
+    ]
+    if not enabled:
+        raise ValueError("selection contains no enabled managed repositories")
+    return ",".join(enabled)
+
+
 def classify(content: str | None, canonical: str) -> str:
     """Classify the caller on a repository's default branch."""
     if content is None:
@@ -534,6 +566,11 @@ def parse_args() -> argparse.Namespace:
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--check", action="store_true")
     parser.add_argument("--repository", help="select one owner/repository entry")
+    parser.add_argument(
+        "--print-app-repositories",
+        action="store_true",
+        help="print enabled repository slugs for actions/create-github-app-token",
+    )
     parser.add_argument("--json-output", type=Path)
     parser.add_argument("--summary-output", type=Path)
     return parser.parse_args()
@@ -543,15 +580,10 @@ def main() -> int:
     args = parse_args()
     try:
         repositories = load_manifest(args.manifest)
-        if args.repository:
-            validate_repository_name(args.repository)
-            repositories = [
-                repository
-                for repository in repositories
-                if repository.name == args.repository
-            ]
-            if not repositories:
-                raise ValueError(f"repository is not enrolled: {args.repository}")
+        repositories = select_repositories(repositories, args.repository)
+        if args.print_app_repositories:
+            print(github_app_repository_scope(repositories))
+            return 0
         canonical = args.template.read_text(encoding="utf-8")
         service = GitHubAPI(os.environ.get("GH_TOKEN", ""))
     except (OSError, ValueError, json.JSONDecodeError) as error:

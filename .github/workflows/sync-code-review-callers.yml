@@ -41,7 +41,7 @@ jobs:
 
     steps:
       - name: Check out central configuration
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
 
@@ -57,13 +57,32 @@ jobs:
             exit 1
           fi
 
+      - name: Resolve managed repository scope
+        id: app-scope
+        shell: bash
+        env:
+          SELECTED_REPOSITORY: ${{ github.event_name == 'workflow_dispatch' && inputs.repository || '' }}
+        run: |
+          set -euo pipefail
+          args=(--manifest config/code-review-repositories.json)
+          if [[ -n "${SELECTED_REPOSITORY}" ]]; then
+            args+=(--repository "${SELECTED_REPOSITORY}")
+          fi
+          repositories="$(
+            python3 scripts/sync_code_review_callers.py \
+              "${args[@]}" \
+              --print-app-repositories
+          )"
+          printf 'repositories=%s\n' "${repositories}" >> "${GITHUB_OUTPUT}"
+
       - name: Create least-privilege GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           client-id: ${{ vars.CODE_REVIEW_SYNC_APP_CLIENT_ID }}
           private-key: ${{ secrets.CODE_REVIEW_SYNC_APP_PRIVATE_KEY }}
           owner: mobilint
+          repositories: ${{ steps.app-scope.outputs.repositories }}
           permission-actions: read
           permission-contents: write
           permission-pull-requests: write

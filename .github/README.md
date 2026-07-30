@@ -121,7 +121,11 @@ Grant only these repository permissions:
 
 Metadata read is implicit for GitHub Apps. Do not use a personal access token as
 the scheduled workflow credential, and do not install the App on repositories
-that are not managed.
+that are not managed. Secret-bearing actions are pinned to immutable commit
+SHAs. The workflow derives the minted token's `repositories` scope from enabled
+manifest entries, or from the one explicitly selected enrolled repository.
+Installation scope remains the primary boundary because the App private key can
+mint tokens only for repositories where the App is installed.
 
 See GitHub's documentation for
 [choosing App permissions](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app)
