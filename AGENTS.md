@@ -54,6 +54,8 @@ Do not assume a change in only one repository completes the feature.
   mention reviews.
 - Keep automatic reviews bounded and keep mention review payloads within the
   documented safety limit.
+- Keep the shared capacity defaults synchronized: 500 changed files, 1,000,000
+  diff characters, and 10 concurrent mention-review slots per PR.
 
 ## Security Invariants
 

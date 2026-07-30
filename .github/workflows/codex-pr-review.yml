@@ -22,12 +22,12 @@ on:
         description: Soft limit for changed files passed to the review runner
         required: false
         type: number
-        default: 200
+        default: 500
       max_diff_chars:
         description: Soft limit for diff size passed to the review runner
         required: false
         type: number
-        default: 200000
+        default: 1000000
       official_review_wait_minutes:
         description: Minutes to wait for the official Codex review before running the self-hosted fallback
         required: false
@@ -47,7 +47,7 @@ on:
         description: Maximum active mention-triggered Codex reviews allowed per PR
         required: false
         type: number
-        default: 5
+        default: 10
 
 permissions:
   actions: read
@@ -173,7 +173,7 @@ jobs:
           echo "commenter_association=${commenter_association}" >> "$GITHUB_OUTPUT"
           max_concurrent="${{ inputs.max_concurrent_mention_reviews }}"
           if ! [[ "${max_concurrent}" =~ ^[1-9][0-9]*$ ]]; then
-            max_concurrent=5
+            max_concurrent=10
           fi
           if [[ "${comment_id}" =~ ^[0-9]+$ ]]; then
             echo "mention_slot=$((comment_id % max_concurrent))" >> "$GITHUB_OUTPUT"
