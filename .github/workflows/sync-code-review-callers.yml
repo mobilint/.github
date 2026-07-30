@@ -1,0 +1,96 @@
+name: Synchronize Codex review callers
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Report drift without creating commits or pull requests
+        required: false
+        type: boolean
+        default: true
+      repository:
+        description: Optional enrolled owner/repository to process
+        required: false
+        type: string
+        default: ""
+  push:
+    branches:
+      - main
+    paths:
+      - workflow-templates/code-review.yml
+      - .github/workflows/code-review.yml
+      - .github/workflows/sync-code-review-callers.yml
+      - config/code-review-repositories.json
+      - scripts/sync_code_review_callers.py
+      - tests/test_managed_caller.py
+      - tests/test_sync_code_review_callers.py
+  schedule:
+    - cron: "43 2 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-code-review-callers
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out central configuration
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Verify GitHub App configuration
+        shell: bash
+        env:
+          APP_CLIENT_ID: ${{ vars.CODE_REVIEW_SYNC_APP_CLIENT_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.CODE_REVIEW_SYNC_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${APP_CLIENT_ID}" || -z "${APP_PRIVATE_KEY}" ]]; then
+            echo "::error::Configure CODE_REVIEW_SYNC_APP_CLIENT_ID and CODE_REVIEW_SYNC_APP_PRIVATE_KEY before enabling caller synchronization."
+            exit 1
+          fi
+
+      - name: Create least-privilege GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.CODE_REVIEW_SYNC_APP_CLIENT_ID }}
+          private-key: ${{ secrets.CODE_REVIEW_SYNC_APP_PRIVATE_KEY }}
+          owner: mobilint
+          permission-actions: read
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write
+
+      - name: Synchronize managed callers
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+          SELECTED_REPOSITORY: ${{ github.event_name == 'workflow_dispatch' && inputs.repository || '' }}
+        run: |
+          set -euo pipefail
+
+          args=(
+            --manifest config/code-review-repositories.json
+            --template workflow-templates/code-review.yml
+            --json-output sync-results.json
+            --summary-output sync-summary.md
+          )
+          if [[ "${DRY_RUN}" == "true" ]]; then
+            args+=(--dry-run)
+          fi
+          if [[ -n "${SELECTED_REPOSITORY}" ]]; then
+            args+=(--repository "${SELECTED_REPOSITORY}")
+          fi
+
+          python3 scripts/sync_code_review_callers.py "${args[@]}"
+          cat sync-results.json
+          cat sync-summary.md >> "${GITHUB_STEP_SUMMARY}"

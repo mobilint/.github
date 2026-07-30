@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "repositories": [
+    {
+      "name": "mobilint/mblt-model-zoo",
+      "enabled": true,
+      "adopt_existing": true,
+      "profile": "default",
+      "overrides": {}
+    }
+  ]
+}

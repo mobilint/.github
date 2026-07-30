@@ -172,7 +172,9 @@ jobs:
           echo "comment_id=${comment_id}" >> "$GITHUB_OUTPUT"
           echo "commenter_association=${commenter_association}" >> "$GITHUB_OUTPUT"
           max_concurrent="${{ inputs.max_concurrent_mention_reviews }}"
-          if ! [[ "${max_concurrent}" =~ ^[1-9][0-9]*$ ]]; then
+          if ! [[ "${max_concurrent}" =~ ^[1-9][0-9]*$ ]] ||
+            (( ${#max_concurrent} > 2 )) ||
+            (( 10#${max_concurrent} > 50 )); then
             max_concurrent=10
           fi
           if [[ "${comment_id}" =~ ^[0-9]+$ ]]; then
@@ -400,8 +402,14 @@ jobs:
           WAIT_MINUTES: ${{ inputs.official_review_wait_minutes }}
         run: |
           set -euo pipefail
-          wait_seconds=$(( WAIT_MINUTES * 60 ))
-          echo "Waiting ${WAIT_MINUTES} minute(s) for official Codex review before running self-hosted fallback."
+          wait_minutes="${WAIT_MINUTES}"
+          if ! [[ "${wait_minutes}" =~ ^[0-9]+$ ]] ||
+            (( ${#wait_minutes} > 2 )) ||
+            (( 10#${wait_minutes} > 60 )); then
+            wait_minutes=5
+          fi
+          wait_seconds=$(( wait_minutes * 60 ))
+          echo "Waiting ${wait_minutes} minute(s) for official Codex review before running self-hosted fallback."
           sleep "${wait_seconds}"
 
       - name: Decide fallback execution

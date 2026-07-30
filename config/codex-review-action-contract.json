@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "action_inputs": {
+    "repo": {
+      "required": true
+    },
+    "pr_number": {
+      "required": true
+    },
+    "event_name": {
+      "required": true
+    },
+    "mode": {
+      "required": false,
+      "default": "auto"
+    },
+    "comment_id": {
+      "required": false,
+      "default": ""
+    },
+    "commenter": {
+      "required": false,
+      "default": ""
+    },
+    "ack_reaction_id": {
+      "required": false,
+      "default": ""
+    },
+    "ack_reaction_target": {
+      "required": false,
+      "default": ""
+    },
+    "max_files": {
+      "required": false,
+      "default": "500"
+    },
+    "max_diff_chars": {
+      "required": false,
+      "default": "1000000"
+    },
+    "sandbox_mode": {
+      "required": false,
+      "default": "read-only"
+    },
+    "allow_unsafe_no_sandbox_fallback": {
+      "required": false,
+      "default": "false"
+    }
+  }
+}
