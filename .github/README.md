@@ -77,6 +77,12 @@ Edit `config/code-review-repositories.json`.
 - `profile` and `overrides` are reserved metadata. They do not currently change
   synchronization or review policy.
 
+The manifest contains an explicit snapshot of all 21 Mobilint repositories as
+of 2026-07-30. Seventeen active repositories are enabled. Four archived
+repositories remain listed with `enabled: false`, so they are visible in policy
+without entering the GitHub App token scope. New organization repositories
+must still be added deliberately.
+
 ## Synchronization operation
 
 `scripts/sync_code_review_callers.py` discovers each repository's default
