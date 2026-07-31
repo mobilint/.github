@@ -1,0 +1,152 @@
+{
+  "version": 1,
+  "repositories": [
+    {
+      "name": "mobilint/mblt-model-zoo",
+      "enabled": true,
+      "adopt_existing": true,
+      "profile": "default",
+      "overrides": {}
+    },
+    {
+      "name": "mobilint/.github",
+      "enabled": true,
+      "adopt_existing": false,
+      "profile": "default",
+      "overrides": {}
+    },
+    {
+      "name": "mobilint/aries-ai-assistant-demo",
+      "enabled": true,
+      "adopt_existing": false,
+      "profile": "default",
+      "overrides": {}
+    },
+    {
+      "name": "mobilint/aries-cv-demo",
+      "enabled": true,
+      "adopt_existing": false,
+      "profile": "default",
+      "overrides": {}
+    },
+    {
+      "name": "mobilint/aries-fire-detection-demo",
+      "enabled": false,
+      "adopt_existing": false,
+      "profile": "default",
+      "overrides": {}
+    },
+    {
+      "name": "mobilint/aries-llm-demo",
+      "enabled": true,
+      "adopt_existing": false,
+      "profile": "default",
+      "overrides": {}
+    },
+    {
+      "name": "mobilint/aries-multi-channel-demo",
+      "enabled": false,
+      "adopt_existing": false,
+      "profile": "default",
+      "overrides": {}
+    },
+    {
+      "name": "mobilint/aries-multi-llm-demo",
+      "enabled": true,
+      "adopt_existing": false,
+      "profile": "default",
+      "overrides": {}
+    },
+    {
+      "name": "mobilint/aries-vision-transformer-demo",
+      "enabled": true,
+      "adopt_existing": false,
+      "profile": "default",
+      "overrides": {}
+    },
+    {
+      "name": "mobilint/aries-vision-vlm-demo",
+      "enabled": true,
+      "adopt_existing": false,
+      "profile": "default",
+      "overrides": {}
+    },
+    {
+      "name": "mobilint/aries-vlm-demo",
+      "enabled": true,
+      "adopt_existing": false,
+      "profile": "default",
+      "overrides": {}
+    },
+    {
+      "name": "mobilint/aries-weapon-detection-demo",
+      "enabled": false,
+      "adopt_existing": false,
+      "profile": "default",
+      "overrides": {}
+    },
+    {
+      "name": "mobilint/codex-review-action",
+      "enabled": true,
+      "adopt_existing": false,
+      "profile": "default",
+      "overrides": {}
+    },
+    {
+      "name": "mobilint/mblt-model-arxiv",
+      "enabled": true,
+      "adopt_existing": false,
+      "profile": "default",
+      "overrides": {}
+    },
+    {
+      "name": "mobilint/mblt-sdk-tutorial",
+      "enabled": true,
+      "adopt_existing": false,
+      "profile": "default",
+      "overrides": {}
+    },
+    {
+      "name": "mobilint/mblt-tracker",
+      "enabled": true,
+      "adopt_existing": false,
+      "profile": "default",
+      "overrides": {}
+    },
+    {
+      "name": "mobilint/mobilint-device-plugin",
+      "enabled": true,
+      "adopt_existing": false,
+      "profile": "default",
+      "overrides": {}
+    },
+    {
+      "name": "mobilint/quantization-suite",
+      "enabled": false,
+      "adopt_existing": false,
+      "profile": "default",
+      "overrides": {}
+    },
+    {
+      "name": "mobilint/regulus-npu-demo-maccel",
+      "enabled": true,
+      "adopt_existing": false,
+      "profile": "default",
+      "overrides": {}
+    },
+    {
+      "name": "mobilint/regulus-npu-demo-qbruntime",
+      "enabled": true,
+      "adopt_existing": false,
+      "profile": "default",
+      "overrides": {}
+    },
+    {
+      "name": "mobilint/vllm-mblt",
+      "enabled": true,
+      "adopt_existing": false,
+      "profile": "default",
+      "overrides": {}
+    }
+  ]
+}

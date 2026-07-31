@@ -11,8 +11,8 @@ description: Maintain Mobilint's centralized GitHub Codex review workflows and c
 2. Inspect the caller, reusable workflow, and affected action contract before
    editing.
 3. Preserve unrelated worktree changes.
-4. Treat `.github/workflows/code-review.yml` as the conservative template that
-   other Mobilint repositories will copy.
+4. Treat `workflow-templates/code-review.yml` as the only hand-edited managed
+   caller source. Keep `.github/workflows/code-review.yml` byte-identical.
 
 ## Trace Cross-Repository Behavior
 
@@ -40,6 +40,15 @@ templates, formatter, and tests whenever the shared contract is affected.
 - Ignore quoted and code-formatted mentions with linear-time parsing.
 - Validate GitHub identifiers before API path interpolation.
 - Keep finding and payload limits explicit.
+- Keep the reusable workflow and canonical caller aligned on the default review
+  capacity: 500 files, 1,000,000 diff characters, and 10 concurrent mention
+  slots per PR.
+- Keep managed callers limited to events, minimal permissions, and the central
+  reusable-workflow call. Do not duplicate policy inputs.
+- Distribute callers through the manifest and idempotent automation pull
+  requests; never write a consumer default branch.
+- Keep caller audits and synchronization operator-run. Do not add an unattended
+  cross-repository credential workflow.
 - Use `submitted` for pull request reviews and `created` for individual review
   comments and issue comments.
 - Keep clone badge output on the orphan `badges` branch.
@@ -54,7 +63,8 @@ templates, formatter, and tests whenever the shared contract is affected.
 After changing repository behavior, layout, contracts, defaults, security
 boundaries, or validation:
 
-1. Update `README.md` when user-facing behavior changed.
+1. Update `README.md` for user-facing behavior and `.github/README.md` for
+   maintainer architecture, operation, CI, release, or rollback changes.
 2. Update both `AGENTS.md` and `CLAUDE.md`.
 3. Update this skill and
    `.claude/skills/maintain-review-automation/SKILL.md`.
@@ -70,6 +80,9 @@ Run:
 
 ```bash
 python3 -c "import yaml; yaml.safe_load(open('.github/workflows/codex-pr-review.yml', encoding='utf-8')); yaml.safe_load(open('.github/workflows/code-review.yml', encoding='utf-8')); yaml.safe_load(open('.github/workflows/check-agent-guides.yml', encoding='utf-8')); print('workflow YAML OK')"
+python3 -m unittest discover -s tests -v
+python3 -m compileall -q scripts tests
+cmp workflow-templates/code-review.yml .github/workflows/code-review.yml
 cmp AGENTS.md CLAUDE.md
 cmp .agents/skills/maintain-review-automation/SKILL.md .claude/skills/maintain-review-automation/SKILL.md
 cmp .agents/skills/maintain-review-automation/agents/openai.yaml .claude/skills/maintain-review-automation/agents/openai.yaml

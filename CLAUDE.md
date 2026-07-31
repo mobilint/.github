@@ -15,12 +15,25 @@ the same change and run the synchronization workflow before finishing.
   events, enforces trust gates, manages reactions, and invokes the self-hosted
   review action.
 - `.github/workflows/code-review.yml`: canonical caller example copied into
-  Mobilint repositories.
+  Mobilint repositories; it must be byte-identical to the workflow template.
+- `workflow-templates/code-review.yml`: single canonical managed caller source
+  and official organization workflow template.
+- `workflow-templates/code-review.properties.json`: organization template
+  metadata.
+- `.github/workflows/check-code-review-sync.yml`: caller, contract, YAML, and
+  synchronization test workflow.
+- `config/code-review-repositories.json`: explicit managed-repository manifest.
+- `config/codex-review-action-contract.json`: expected public action input
+  contract.
+- `scripts/sync_code_review_callers.py`: idempotent pull-request synchronizer.
+- `tests/`: offline caller, contract, API-failure, and idempotency tests.
 - `.github/workflows/update-clone-badge.yml`: clone badge publisher that writes
   generated data to the orphan `badges` branch.
 - `.github/workflows/check-agent-guides.yml`: CI guard that requires the Codex
   and Claude guide and skill copies to remain byte-identical.
-- `README.md`: repository landing page and clone badge.
+- `README.md`: user-facing repository overview and clone badge.
+- `.github/README.md`: maintainer architecture, manual synchronization,
+  validation, release, and rollback guide.
 - `profile/README.md`: Mobilint organization profile.
 - `assets/`: organization profile assets.
 - `.agents/skills/maintain-review-automation/`: Codex maintenance skill.
@@ -34,7 +47,8 @@ format, sandbox policy, or delivery behavior:
 
 1. Inspect `../codex-review-action/action.yml`.
 2. Update the action implementation and tests when its contract changes.
-3. Update `codex-pr-review.yml`, `code-review.yml`, and relevant READMEs.
+3. Update `codex-pr-review.yml`, the canonical workflow template, its exact
+   example copy, the contract fixture, and relevant READMEs.
 4. Update both agent guides and both skill copies when their instructions or
    repository map are affected.
 5. Validate both repositories before committing.
@@ -54,6 +68,13 @@ Do not assume a change in only one repository completes the feature.
   mention reviews.
 - Keep automatic reviews bounded and keep mention review payloads within the
   documented safety limit.
+- Keep the shared capacity defaults synchronized: 500 changed files, 1,000,000
+  diff characters, and 10 concurrent mention-review slots per PR.
+- Keep consumer callers policy-free: events, minimal permissions, and the
+  central reusable-workflow reference only.
+- Subscribe managed callers to `synchronize`, while keeping
+  `review_on_pr_synchronize: false` centrally unless policy deliberately
+  changes.
 
 ## Security Invariants
 
@@ -88,6 +109,12 @@ Do not assume a change in only one repository completes the feature.
 - Keep the canonical caller conservative because it is copied to other
   repositories.
 - Do not commit generated clone badge JSON to `main`; keep it on `badges`.
+- Never edit `.github/workflows/code-review.yml` independently. Edit
+  `workflow-templates/code-review.yml` and keep the example byte-identical.
+- Synchronize consumers only through deterministic branches and pull requests;
+  never push their default branches.
+- Do not add an unattended cross-repository credential workflow. Caller audits
+  and synchronization are explicit operator-run maintenance tasks.
 
 ## Documentation Maintenance
 
@@ -99,9 +126,11 @@ Before finishing any repository change, check whether it changes:
 - sandbox, trust, token, or API-path security boundaries;
 - validation commands or deployment procedures.
 
-If so, update `AGENTS.md`, `CLAUDE.md`, and both copies of the maintenance
-skill in the same commit. Keep each mirrored pair byte-identical. Do not update
-only the Codex or only the Claude copy.
+Keep public behavior and usage in `README.md`; keep maintainer operations, CI,
+release, and rollback procedures in `.github/README.md`. Update `AGENTS.md`,
+`CLAUDE.md`, and both copies of the maintenance skill in the same commit. Keep
+each mirrored pair byte-identical. Do not update only the Codex or only the
+Claude copy.
 
 ## Validation
 
@@ -109,6 +138,9 @@ Run at minimum:
 
 ```bash
 python3 -c "import yaml; yaml.safe_load(open('.github/workflows/codex-pr-review.yml', encoding='utf-8')); yaml.safe_load(open('.github/workflows/code-review.yml', encoding='utf-8')); yaml.safe_load(open('.github/workflows/check-agent-guides.yml', encoding='utf-8')); print('workflow YAML OK')"
+python3 -m unittest discover -s tests -v
+python3 -m compileall -q scripts tests
+cmp workflow-templates/code-review.yml .github/workflows/code-review.yml
 cmp AGENTS.md CLAUDE.md
 cmp .agents/skills/maintain-review-automation/SKILL.md .claude/skills/maintain-review-automation/SKILL.md
 cmp .agents/skills/maintain-review-automation/agents/openai.yaml .claude/skills/maintain-review-automation/agents/openai.yaml

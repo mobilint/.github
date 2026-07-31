@@ -1,0 +1,5 @@
+self-hosted-runner:
+  labels:
+    - codex-reviewer
+
+config-variables: null
