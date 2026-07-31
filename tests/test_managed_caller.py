@@ -14,6 +14,14 @@ APP_SYNCHRONIZER = ROOT / ".github" / "workflows" / "sync-code-review-callers.ym
 
 
 class ManagedCallerTests(unittest.TestCase):
+    def test_root_readme_remains_the_landing_page_with_clone_badge(self) -> None:
+        self.assertFalse((ROOT / ".github" / "README.md").exists())
+        self.assertTrue((ROOT / ".github" / "MAINTAINERS.md").is_file())
+        self.assertIn(
+            "[![GitHub clones]",
+            (ROOT / "README.md").read_text(encoding="utf-8"),
+        )
+
     def test_canonical_and_example_are_identical(self) -> None:
         self.assertEqual(CANONICAL.read_bytes(), EXAMPLE.read_bytes())
 
