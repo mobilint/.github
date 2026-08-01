@@ -35,5 +35,5 @@ and local audit tool help detect drift, but no unattended cross-repository
 credential workflow is installed.
 
 Maintainers should use the
-[automation operations guide](.github/README.md) for architecture, enrollment,
+[automation operations guide](.github/MAINTAINERS.md) for architecture, enrollment,
 manual synchronization, validation, release, and rollback procedures.
