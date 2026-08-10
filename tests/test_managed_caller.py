@@ -11,6 +11,9 @@ CANONICAL = ROOT / "workflow-templates" / "code-review.yml"
 EXAMPLE = ROOT / ".github" / "workflows" / "code-review.yml"
 REUSABLE = ROOT / ".github" / "workflows" / "codex-pr-review.yml"
 APP_SYNCHRONIZER = ROOT / ".github" / "workflows" / "sync-code-review-callers.yml"
+TEMPLATE_SYNCHRONIZER = (
+    ROOT / ".github" / "workflows" / "sync-code-review-template.yml"
+)
 
 
 class ManagedCallerTests(unittest.TestCase):
@@ -24,6 +27,29 @@ class ManagedCallerTests(unittest.TestCase):
 
     def test_canonical_and_example_are_identical(self) -> None:
         self.assertEqual(CANONICAL.read_bytes(), EXAMPLE.read_bytes())
+
+    def test_template_synchronizer_is_safe_and_automatic(self) -> None:
+        text = TEMPLATE_SYNCHRONIZER.read_text(encoding="utf-8")
+        for fragment in (
+            "branches:",
+            "- main",
+            "pull_request:",
+            "workflow-templates/code-review.yml",
+            "contents: write",
+            "runs-on: ubuntu-latest",
+            "github.event.pull_request.head.repo.full_name == github.repository",
+            'source_file="workflow-templates/code-review.yml"',
+            'generated_file=".github/workflows/code-review.yml"',
+            'git ls-files --stage -- "${path}"',
+            '"${source_mode}" != "100644"',
+            'git cat-file blob "${source_oid}"',
+            'mv -fT -- "${temporary_file}" "${generated_file}"',
+            'git check-ref-format --branch "${TARGET_BRANCH}"',
+            'git push origin "HEAD:refs/heads/${TARGET_BRANCH}"',
+        ):
+            self.assertIn(fragment, text)
+        self.assertNotIn("pull_request_target", text)
+        self.assertNotIn("--force", text)
 
     def test_template_metadata_is_valid_json(self) -> None:
         metadata = json.loads(
