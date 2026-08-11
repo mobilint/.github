@@ -28,8 +28,18 @@ task; no GitHub App or scheduled cross-repository writer is used.
 
 `workflow-templates/code-review.yml` is the only hand-edited source. It is also
 the official organization workflow template. The backward-compatible example
-at `.github/workflows/code-review.yml` must remain byte-identical; CI rejects
-drift.
+at `.github/workflows/code-review.yml` must remain byte-identical.
+
+`.github/workflows/sync-code-review-template.yml` copies the canonical file to
+the example automatically. It runs on GitHub-hosted `ubuntu-latest` for
+same-repository pull requests that change the canonical file, after canonical
+changes reach `main`, and on manual dispatch from `main`. Fork pull requests are
+skipped because their branches must not receive a write token; their authors
+must include the exact-copy example in the PR. The job executes no repository
+code, validates the canonical path as a tracked regular file, constructs the
+copy from the Git blob, and pushes without force. Its scoped `GITHUB_TOKEN` may
+write repository contents only; it uses neither the Codex runner nor a GitHub
+App credential.
 
 The template metadata is
 `workflow-templates/code-review.properties.json`. Managed callers contain
@@ -112,6 +122,10 @@ is isolated to its repository.
 Normal caller updates may also be copied manually. Do not configure
 `CODE_REVIEW_SYNC_APP_CLIENT_ID` or `CODE_REVIEW_SYNC_APP_PRIVATE_KEY`; this
 repository deliberately has no unattended App-based synchronizer.
+
+The automatic template-copy workflow affects only the two files inside this
+central repository. It does not distribute updates to consumer repositories;
+consumer audit and migration remain explicit operator-run tasks.
 
 ## Validation
 

@@ -1,0 +1,100 @@
+name: Synchronize Codex review template
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+    paths:
+      - workflow-templates/code-review.yml
+  push:
+    branches:
+      - main
+    paths:
+      - workflow-templates/code-review.yml
+      - .github/workflows/sync-code-review-template.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-code-review-template-${{ github.event.pull_request.number || 'main' }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: >-
+      github.repository == 'mobilint/.github' &&
+      (github.event_name == 'push' ||
+       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+       (github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out requested revision
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          # This job pushes only the generated exact-copy file. It never runs
+          # repository code, and fork pull requests are rejected by the job gate.
+          persist-credentials: true
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Synchronize managed caller example
+        shell: bash
+        env:
+          TARGET_BRANCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || 'main' }}
+        run: |
+          set -euo pipefail
+
+          source_file="workflow-templates/code-review.yml"
+          generated_file=".github/workflows/code-review.yml"
+
+          tracked_entry() {
+            local path="$1"
+            git ls-files --stage -- "${path}"
+          }
+
+          source_entry="$(tracked_entry "${source_file}")"
+          if [[ -z "${source_entry}" || "${source_entry}" == *$'\n'* ]]; then
+            echo "::error::${source_file} must have exactly one tracked index entry"
+            exit 1
+          fi
+
+          IFS=$' \t' read -r source_mode source_oid source_stage source_path <<< "${source_entry}"
+          if [[ "${source_mode}" != "100644" || "${source_stage}" != "0" || "${source_path}" != "${source_file}" ]]; then
+            echo "::error::${source_file} must be a regular tracked 100644 file"
+            exit 1
+          fi
+
+          generated_entry="$(tracked_entry "${generated_file}")"
+          generated_oid=""
+          if [[ -n "${generated_entry}" && "${generated_entry}" != *$'\n'* ]]; then
+            IFS=$' \t' read -r generated_mode candidate_oid generated_stage generated_path <<< "${generated_entry}"
+            if [[ "${generated_mode}" == "100644" && "${generated_stage}" == "0" && "${generated_path}" == "${generated_file}" ]]; then
+              generated_oid="${candidate_oid}"
+            fi
+          fi
+
+          if [[ "${source_oid}" == "${generated_oid}" ]]; then
+            echo "Managed caller example is already synchronized."
+            exit 0
+          fi
+
+          temporary_file="$(mktemp .github/workflows/.code-review.yml.XXXXXX)"
+          trap 'rm -f -- "${temporary_file}"' EXIT
+          git cat-file blob "${source_oid}" > "${temporary_file}"
+          chmod 0644 "${temporary_file}"
+          mv -fT -- "${temporary_file}" "${generated_file}"
+          trap - EXIT
+
+          git check-ref-format --branch "${TARGET_BRANCH}" >/dev/null
+          git config user.name "mobilint-template-sync[bot]"
+          git config user.email "mobilint-template-sync[bot]@users.noreply.github.com"
+          git add -- "${generated_file}"
+          git commit -m "chore(actions): synchronize Codex review template"
+          git push origin "HEAD:refs/heads/${TARGET_BRANCH}"

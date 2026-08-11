@@ -7,7 +7,7 @@ canonical caller example, organization profile, and clone badge automation.
 
 `AGENTS.md` and `CLAUDE.md` are byte-for-byte mirrors. The repository skill is
 also mirrored under `.agents/skills` and `.claude/skills`. Update both copies in
-the same change and run the synchronization workflow before finishing.
+the same change and run the relevant validation before finishing.
 
 ## Repository Map
 
@@ -22,6 +22,8 @@ the same change and run the synchronization workflow before finishing.
   metadata.
 - `.github/workflows/check-code-review-sync.yml`: caller, contract, YAML, and
   synchronization test workflow.
+- `.github/workflows/sync-code-review-template.yml`: same-repository exact-copy
+  automation for the canonical caller template and example.
 - `config/code-review-repositories.json`: explicit managed-repository manifest.
 - `config/codex-review-action-contract.json`: expected public action input
   contract.
@@ -94,6 +96,9 @@ Do not assume a change in only one repository completes the feature.
 - In pull-request checks, never dereference or print repository paths before
   proving they are regular tracked files. Compare trusted Git index metadata or
   blob IDs, and disable checkout credential persistence when it is unnecessary.
+- Keep template copying on GitHub-hosted runners. It may write only the fixed
+  generated caller path, must reject fork PRs, and must never execute repository
+  code.
 
 ## Workflow Editing Rules
 
@@ -110,7 +115,10 @@ Do not assume a change in only one repository completes the feature.
   repositories.
 - Do not commit generated clone badge JSON to `main`; keep it on `badges`.
 - Never edit `.github/workflows/code-review.yml` independently. Edit
-  `workflow-templates/code-review.yml` and keep the example byte-identical.
+  `workflow-templates/code-review.yml`; the template synchronizer updates the
+  exact-copy example on same-repository PR branches and after direct main
+  changes. Fork PRs must include the exact copy because they cannot receive a
+  write token.
 - Synchronize consumers only through deterministic branches and pull requests;
   never push their default branches.
 - Do not add an unattended cross-repository credential workflow. Caller audits

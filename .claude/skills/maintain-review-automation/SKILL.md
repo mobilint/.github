@@ -12,7 +12,9 @@ description: Maintain Mobilint's centralized GitHub Codex review workflows and c
    editing.
 3. Preserve unrelated worktree changes.
 4. Treat `workflow-templates/code-review.yml` as the only hand-edited managed
-   caller source. Keep `.github/workflows/code-review.yml` byte-identical.
+   caller source. The hosted template synchronizer keeps
+   `.github/workflows/code-review.yml` byte-identical on same-repository PRs and
+   `main`; fork PRs must carry the exact copy themselves.
 
 ## Trace Cross-Repository Behavior
 
@@ -49,6 +51,8 @@ templates, formatter, and tests whenever the shared contract is affected.
   requests; never write a consumer default branch.
 - Keep caller audits and synchronization operator-run. Do not add an unattended
   cross-repository credential workflow.
+- Keep same-repository template copying on GitHub-hosted runners, restrict it to
+  the fixed generated path, reject fork PRs, and never execute repository code.
 - Keep maintainer documentation in `.github/MAINTAINERS.md`; never create
   `.github/README.md`, which would replace the root landing page and hide its
   clone badge.
