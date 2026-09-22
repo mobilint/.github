@@ -23,6 +23,9 @@ explicitly opts in.
 The gate runs on GitHub-hosted infrastructure before untrusted PR content can
 reach the self-hosted runner. Caller distribution is an operator-run maintenance
 task; no GitHub App or scheduled cross-repository writer is used.
+The hosted cleanup job removes the temporary eyes reaction when the self-hosted
+review fails or is canceled before its action can perform cleanup.
+
 When event association metadata is inconclusive, the permission fallback trusts
 only an explicit `write`, `maintain`, or `admin` effective repository permission;
 API success by itself and `read` or `none` permissions remain untrusted.

@@ -155,6 +155,13 @@ class ManagedCallerTests(unittest.TestCase):
         self.assertNotIn("inputs.allow_unsafe_no_sandbox_fallback", text)
         self.assertNotIn("pull_request_target", text)
 
+    def test_temporary_reaction_cleanup_covers_cancelled_reviews(self) -> None:
+        text = REUSABLE.read_text(encoding="utf-8")
+        cleanup = text[text.index("  post-failure:") :]
+        self.assertIn("needs.run-review.result == 'cancelled'", cleanup)
+        self.assertIn("- name: Remove temporary eyes reaction", cleanup)
+        self.assertIn("if: needs.run-review.result == 'failure'", cleanup)
+
     def test_permission_fallback_requires_an_explicit_trusted_level(self) -> None:
         text = REUSABLE.read_text(encoding="utf-8")
         self.assertIn("has_trusted_repository_permission", text)
