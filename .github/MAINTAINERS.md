@@ -230,3 +230,14 @@ the canonical caller blob identity. Even when the default caller is current,
 check/dry-run reports an untrusted existing branch as drift; apply resets it
 to the default branch and verifies it before reporting synchronization. A
 regular already-current branch remains idempotent and produces no write.
+
+## Shared Codex and Claude guidance
+
+Edit `AGENTS.md` and `.agents/skills` as the canonical sources. `CLAUDE.md`
+links to `AGENTS.md`; `.claude/skills` links to `../.agents/skills`. Changes through
+either path affect the same files. Check out with Git symlink support enabled
+(`core.symlinks=true`) so these entries materialize as links rather than text.
+The guide CI checks canonical files as tracked `100644` blobs and accepts only
+those two exact `120000` link targets by Git blob identity. It never dereferences
+PR-controlled links. Other source-file and managed-caller checks still reject
+symlinks. The regression tests cover valid links and hostile alternatives.

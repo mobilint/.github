@@ -72,8 +72,9 @@ templates, formatter, and tests whenever the shared contract is affected.
   stable workflow ref to that validated commit and test it before distribution.
   Rollbacks must also advance and validate every deployed workflow channel;
   reverting main alone does not repair stable consumers.
-- For pull-request checks, reject non-`100644` index entries and compare Git
-  blob IDs without dereferencing or printing PR-controlled working-tree paths.
+- For pull-request checks, require `100644` canonical sources and allow only
+  the exact `120000` Claude links to `AGENTS.md` and `../.agents/skills`. Compare
+  index modes and blob IDs without following or printing PR-controlled paths.
 - Set `persist-credentials: false` on read-only checkouts that do not need to
   perform authenticated Git operations.
 
@@ -84,14 +85,12 @@ boundaries, or validation:
 
 1. Update `README.md` for user-facing behavior and `.github/MAINTAINERS.md` for
    maintainer architecture, operation, CI, release, or rollback changes.
-2. Update both `AGENTS.md` and `CLAUDE.md`.
-3. Update this skill and
-   `.claude/skills/maintain-review-automation/SKILL.md`.
-4. Keep each mirrored pair byte-identical.
-5. Update both `agents/openai.yaml` copies if the skill purpose or default
-   prompt changed.
-
-Never update only the Codex or only the Claude documentation.
+2. Update canonical `AGENTS.md` and this skill; Claude reads the same files
+   through `CLAUDE.md -> AGENTS.md` and `.claude/skills -> ../.agents/skills`.
+3. Update canonical `agents/openai.yaml` if the skill purpose or default prompt
+   changes.
+4. Preserve those exact relative symlinks instead of recreating copied files.
+5. Update the companion repository's canonical guidance if its contract changes.
 
 ## Validate
 

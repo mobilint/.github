@@ -27,6 +27,7 @@ jobs:
 
           tracked_blob_oid() {
             local path="$1"
+            local expected_mode="${2:-100644}"
             local entry mode oid stage tracked_path
 
             entry="$(git ls-files --stage -- "${path}")"
@@ -36,36 +37,31 @@ jobs:
             fi
 
             IFS=$' \t' read -r mode oid stage tracked_path <<< "${entry}"
-            if [[ "${mode}" != "100644" || "${stage}" != "0" || "${tracked_path}" != "${path}" ]]; then
-              echo "::error::${path} must be a regular tracked 100644 file" >&2
+            if [[ "${mode}" != "${expected_mode}" || "${stage}" != "0" || "${tracked_path}" != "${path}" ]]; then
+              echo "::error::${path} must have tracked mode ${expected_mode}" >&2
               return 1
             fi
 
             printf '%s\n' "${oid}"
           }
 
-          check_pair() {
-            local codex_file="$1"
-            local claude_file="$2"
-            local codex_oid claude_oid
+          check_symlink() {
+            local path="$1"
+            local target="$2"
+            local actual_oid expected_oid
 
-            if ! codex_oid="$(tracked_blob_oid "${codex_file}")"; then
-              return 1
-            fi
-            if ! claude_oid="$(tracked_blob_oid "${claude_file}")"; then
-              return 1
-            fi
-
-            if [[ "${codex_oid}" != "${claude_oid}" ]]; then
-              echo "::error::${codex_file} and ${claude_file} must be updated together"
+            actual_oid="$(tracked_blob_oid "${path}" 120000)" || return 1
+            expected_oid="$(printf '%s' "${target}" | git hash-object --stdin)"
+            if [[ "${actual_oid}" != "${expected_oid}" ]]; then
+              echo "::error::${path} must use its fixed relative symlink target" >&2
               return 1
             fi
           }
 
-          check_pair AGENTS.md CLAUDE.md
-          check_pair \
-            .agents/skills/maintain-review-automation/SKILL.md \
-            .claude/skills/maintain-review-automation/SKILL.md
-          check_pair \
-            .agents/skills/maintain-review-automation/agents/openai.yaml \
-            .claude/skills/maintain-review-automation/agents/openai.yaml
+          # Inspect index modes and link blob identities only; never follow
+          # PR-controlled filesystem links or print their targets/content.
+          tracked_blob_oid AGENTS.md >/dev/null
+          tracked_blob_oid .agents/skills/maintain-review-automation/SKILL.md >/dev/null
+          tracked_blob_oid .agents/skills/maintain-review-automation/agents/openai.yaml >/dev/null
+          check_symlink CLAUDE.md AGENTS.md
+          check_symlink .claude/skills ../.agents/skills

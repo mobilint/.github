@@ -50,3 +50,6 @@ for compatibility but ignored, regardless of its value.
 Caller audits also inspect existing automation branches when the default caller
 is current. Synchronization rejects symlink callers and repairs untrusted
 automation branch changes before retaining managed PR metadata.
+
+Codex and Claude share repository guidance through symlinks: edit `AGENTS.md`
+and `.agents/skills`; `CLAUDE.md` and `.claude/skills` use those same files.

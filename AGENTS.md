@@ -5,9 +5,10 @@
 Maintain Mobilint's shared GitHub configuration, reusable Codex review workflow,
 canonical caller example, organization profile, and clone badge automation.
 
-`AGENTS.md` and `CLAUDE.md` are byte-for-byte mirrors. The repository skill is
-also mirrored under `.agents/skills` and `.claude/skills`. Update both copies in
-the same change and run the relevant validation before finishing.
+`AGENTS.md` and `.agents/skills` are the canonical sources. `CLAUDE.md` is a
+relative symlink to `AGENTS.md`, and `.claude/skills` is a relative symlink to
+`../.agents/skills`. Edit the canonical files once; both tools read the same
+content. Preserve these exact links and run the guide validation before finishing.
 
 ## Repository Map
 
@@ -32,7 +33,7 @@ the same change and run the relevant validation before finishing.
 - `.github/workflows/update-clone-badge.yml`: clone badge publisher that writes
   generated data to the orphan `badges` branch.
 - `.github/workflows/check-agent-guides.yml`: CI guard that requires the Codex
-  and Claude guide and skill copies to remain byte-identical.
+  and Claude guide and skill paths to share verified canonical sources.
 - `README.md`: user-facing repository overview and clone badge.
 - `.github/MAINTAINERS.md`: maintainer architecture, manual synchronization,
   validation, release, and rollback guide.
@@ -51,7 +52,7 @@ prompt behavior, finding format, sandbox policy, or delivery behavior:
 2. Update the action implementation and tests when its contract changes.
 3. Update `codex-pr-review.yml`, the canonical workflow template, its exact
    example copy, the contract fixture, and relevant READMEs.
-4. Update both agent guides and both skill copies when their instructions or
+4. Update the canonical agent guide and skill when their instructions or
    repository map are affected.
 5. Validate both repositories before committing.
 
@@ -97,7 +98,8 @@ Do not assume a change in only one repository completes the feature.
 - Keep mention parsing linear-time and avoid backtracking regular expressions
   over attacker-controlled comments.
 - In pull-request checks, never dereference or print repository paths before
-  proving they are regular tracked files. Compare trusted Git index metadata or
+  proving canonical sources are regular tracked files and the two allowed
+  Claude links have their exact fixed targets. Compare trusted Git index metadata or
   blob IDs, and disable checkout credential persistence when it is unnecessary.
 - Keep template copying on GitHub-hosted runners. It may write only the fixed
   generated caller path, must reject fork PRs, and must never execute repository
@@ -147,10 +149,10 @@ Before finishing any repository change, check whether it changes:
 - validation commands or deployment procedures.
 
 Keep public behavior and usage in `README.md`; keep maintainer operations, CI,
-release, and rollback procedures in `.github/MAINTAINERS.md`. Update `AGENTS.md`,
-`CLAUDE.md`, and both copies of the maintenance skill in the same commit. Keep
-each mirrored pair byte-identical. Do not update only the Codex or only the
-Claude copy. Never create `.github/README.md`: GitHub would select it instead of
+release, and rollback procedures in `.github/MAINTAINERS.md`. Update canonical `AGENTS.md` and the
+maintenance skill in the same commit. Preserve the Claude symlinks so both tools
+receive those changes. Never create `.github/README.md`: GitHub would select it
+instead of
 the root landing page and hide the clone badge.
 
 ## Validation
