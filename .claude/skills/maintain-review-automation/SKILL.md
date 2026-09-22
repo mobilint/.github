@@ -70,6 +70,8 @@ templates, formatter, and tests whenever the shared contract is affected.
   Canary the exact candidate via a direct action invocation before promoting
   the production pin; then validate the updated central routing. Advance the
   stable workflow ref to that validated commit and test it before distribution.
+  Rollbacks must also advance and validate every deployed workflow channel;
+  reverting main alone does not repair stable consumers.
 - For pull-request checks, reject non-`100644` index entries and compare Git
   blob IDs without dereferencing or printing PR-controlled working-tree paths.
 - Set `persist-credentials: false` on read-only checkouts that do not need to

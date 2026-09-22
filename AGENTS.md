@@ -118,6 +118,8 @@ Do not assume a change in only one repository completes the feature.
   Canary the exact candidate via a direct action invocation before promoting
   the production pin; then validate the updated central routing. Advance the
   stable workflow ref to that validated commit and test it before distribution.
+  Rollbacks must also advance and validate every deployed workflow channel;
+  reverting main alone does not repair stable consumers.
 - Keep the canonical caller conservative because it is copied to other
   repositories.
 - Do not commit generated clone badge JSON to `main`; keep it on `badges`.

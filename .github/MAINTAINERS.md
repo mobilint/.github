@@ -162,6 +162,8 @@ repository currently has a validated `stable` branch. The release sequence is:
 
 1. Merge reviewed action changes on `main` and record the exact candidate SHA.
    Keep the production reusable workflow's action pin unchanged during testing.
+   Record the currently deployed central commit, action SHA, and consumer channel
+   (`main` or `stable`) so the previous validated release is identifiable.
 2. In a controlled repository, use a dedicated trusted canary workflow that
    invokes `mobilint/codex-review-action@<candidate-SHA>` directly, with explicit
    `auto` and `mention` inputs and their corresponding event contexts. Do not
@@ -195,10 +197,25 @@ settings by itself.
 - Before merge, close any manually created consumer synchronization PR.
 - After merge, revert the managed caller commit in the consumer and set its
   manifest entry to `enabled: false` before the next sync.
-- To roll back central policy, revert the reusable workflow commit; consumers
-  using `@main` receive the rollback without caller changes.
-- To roll back a caller schema, revert the canonical template and manually
-  update affected consumer callers.
+- For central policy or action rollback, use a reviewed revert/fix PR on `main`
+  to restore a validated known-good workflow and immutable action SHA, updating
+  the matching contract fixture. Preserve unrelated security fixes. Test both
+  automatic and mention behavior in the controlled repository and record the
+  resulting rollback commit; `@main` consumers receive it without caller changes.
+- For consumers on `@stable`, reverting `main` alone is insufficient. Through
+  the authorized protected-branch release process, advance `mobilint/.github`'s
+  `stable` branch to that validated rollback commit. Prefer a forward revert/fix
+  commit so rollback does not require a force-push. Verify the deployed stable
+  ref and its action pin, then recheck automatic and mention routing through
+  `codex-pr-review.yml@stable` before declaring recovery. Stop further caller
+  distribution if validation fails; repeat the correction and channel checks.
+  Consumers already using `@stable` need no caller edit. Updating the action
+  repository's `stable` branch alone cannot roll back the immutable action SHA
+  embedded in the central workflow.
+- To roll back a caller schema, revert the canonical template, synchronize its
+  generated example, and update affected consumer callers through reviewed PRs.
+  Verify the workflow ref those callers actually use; template changes alone do
+  not update existing consumers.
 
 Comment/review events that require default-branch workflows will not run until
 the managed caller has merged into the consumer's default branch.
