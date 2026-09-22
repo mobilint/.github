@@ -137,6 +137,13 @@ class ManagedCallerTests(unittest.TestCase):
             self.assertIn(fragment, text)
         self.assertNotIn("pull_request_target", text)
 
+    def test_temporary_reaction_cleanup_covers_cancelled_reviews(self) -> None:
+        text = REUSABLE.read_text(encoding="utf-8")
+        cleanup = text[text.index("  post-failure:") :]
+        self.assertIn("needs.run-review.result == 'cancelled'", cleanup)
+        self.assertIn("- name: Remove temporary eyes reaction", cleanup)
+        self.assertIn("if: needs.run-review.result == 'failure'", cleanup)
+
     def test_unattended_app_synchronizer_is_not_installed(self) -> None:
         self.assertFalse(APP_SYNCHRONIZER.exists())
 

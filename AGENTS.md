@@ -61,7 +61,7 @@ Do not assume a change in only one repository completes the feature.
 
 - Use visible `P0`, `P1`, and `P2` priorities for findings.
 - Add a temporary 👀 reaction when a review starts and remove that exact
-  reaction before publishing the final result.
+  reaction before publishing the final result or after review cancellation.
 - For a clean review, add 👍 and do not post a success comment.
 - Keep failure and error notices visible.
 - Ignore `@mobilint-review` inside blockquotes, fenced code, indented code, and

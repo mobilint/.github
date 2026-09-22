@@ -23,6 +23,8 @@ explicitly opts in.
 The gate runs on GitHub-hosted infrastructure before untrusted PR content can
 reach the self-hosted runner. Caller distribution is an operator-run maintenance
 task; no GitHub App or scheduled cross-repository writer is used.
+The hosted cleanup job removes the temporary eyes reaction when the self-hosted
+review fails or is canceled before its action can perform cleanup.
 
 ## Canonical managed caller
 
