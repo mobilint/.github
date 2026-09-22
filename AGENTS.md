@@ -121,6 +121,9 @@ Do not assume a change in only one repository completes the feature.
   write token.
 - Synchronize consumers only through deterministic branches and pull requests;
   never push their default branches.
+- Treat existing automation branches as untrusted: require ancestry from the
+  current default branch and an exact managed-caller-only diff, resetting them
+  otherwise, and verify the complete diff before applying PR metadata.
 - Do not add an unattended cross-repository credential workflow. Caller audits
   and synchronization are explicit operator-run maintenance tasks.
 
