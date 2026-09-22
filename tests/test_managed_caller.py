@@ -137,6 +137,17 @@ class ManagedCallerTests(unittest.TestCase):
             self.assertIn(fragment, text)
         self.assertNotIn("pull_request_target", text)
 
+    def test_permission_fallback_requires_an_explicit_trusted_level(self) -> None:
+        text = REUSABLE.read_text(encoding="utf-8")
+        self.assertIn("has_trusted_repository_permission", text)
+        self.assertIn("--jq '.permission // empty'", text)
+        self.assertIn("admin|maintain|write)", text)
+        self.assertNotIn(
+            'gh api "/repos/${REPO}/collaborators/${COMMENTER}/permission" '
+            ">/dev/null",
+            text,
+        )
+
     def test_unattended_app_synchronizer_is_not_installed(self) -> None:
         self.assertFalse(APP_SYNCHRONIZER.exists())
 
