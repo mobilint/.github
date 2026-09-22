@@ -207,7 +207,12 @@ class GitHubAPI:
             "GET",
             f"{self._repo_path(name)}/compare/{quote(base, safe='')}..."
             f"{quote(head, safe='')}",
+            allow_not_found=True,
         )
+        # GitHub returns 404 for histories with no common ancestor. Such a
+        # branch must be reset before retaining trusted automation metadata.
+        if result is None:
+            return "unavailable", []
         files = result.get("files", [])
         if not isinstance(files, list):
             raise SyncError(f"{name}: comparison returned invalid files data")

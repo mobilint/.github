@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 import tempfile
+import io
+from unittest.mock import patch
+from urllib.error import HTTPError
 import unittest
 
 from scripts import sync_code_review_callers as sync
@@ -299,6 +302,38 @@ jobs:
         self.assertEqual(result.status, "pull_request_created")
         self.assertTrue(any(call[0] == "reset_branch" for call in service.calls))
         self.assertNotIn("src/backdoor.py", state.files[sync.AUTOMATION_BRANCH])
+
+    def test_unrelated_history_is_reset_before_updating_existing_pr(self) -> None:
+        state = RepoState()
+        state.branches[sync.AUTOMATION_BRANCH] = "orphan-sha"
+        state.files[sync.AUTOMATION_BRANCH] = {"backdoor": ("bad", "bad-sha")}
+        state.pull = {"number": 1, "html_url": "https://example.test/pr/1",
+                      "title": "old", "body": "old"}
+        service = FakeService({"mobilint/example": state})
+        compare = service.compare_branch
+        def compare_orphan(name, base, head):
+            if state.branches[head] == "orphan-sha":
+                return "unavailable", []
+            return compare(name, base, head)
+        with patch.object(service, "compare_branch", side_effect=compare_orphan):
+            sync.sync_repository(service, config(), CANONICAL, dry_run=False)
+        self.assertNotIn("backdoor", state.files[sync.AUTOMATION_BRANCH])
+        self.assertEqual(state.files[sync.AUTOMATION_BRANCH][sync.CALLER_PATH][0], CANONICAL)
+        self.assertTrue(any(call[0] == "reset_branch" for call in service.calls))
+
+    def test_compare_api_treats_404_as_untrusted_but_propagates_other_errors(self) -> None:
+        api = sync.GitHubAPI("test-token")
+        for status in (404, 403, 500):
+            with self.subTest(status=status):
+                error = HTTPError("https://example.test", status, "failure", {},
+                                  io.BytesIO(b'{"message":"comparison unavailable"}'))
+                with patch.object(sync, "urlopen", side_effect=error):
+                    if status == 404:
+                        self.assertEqual(api.compare_branch("mobilint/example", "main", "orphan"),
+                                         ("unavailable", []))
+                    else:
+                        with self.assertRaises(sync.SyncError):
+                            api.compare_branch("mobilint/example", "main", "orphan")
 
     def test_second_apply_is_idempotent(self) -> None:
         state = RepoState()

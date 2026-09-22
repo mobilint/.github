@@ -102,7 +102,8 @@ never writes the default branch. Existing automation PRs are reused, and an
 already-current branch produces no commit or metadata update. Before applying
 trusted PR metadata, the synchronizer requires the automation branch to descend
 from the current default branch and to change exactly the managed caller path.
-It resets a branch that fails that check and verifies the complete diff again
+A comparison 404, including unrelated history, also fails this check; other
+API errors abort visibly. It resets a branch that fails that check and verifies the complete diff again
 after writing the caller.
 
 Run it from a trusted administrator workstation or the existing maintenance

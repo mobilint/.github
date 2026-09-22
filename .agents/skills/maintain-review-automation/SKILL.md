@@ -102,3 +102,6 @@ git diff --check
 Run the `codex-review-action` unit and shell checks when changing the
 cross-repository action contract. Inspect the final diff for secure defaults
 and copied-example safety before committing.
+
+Treat a GitHub comparison 404 (including unrelated history) as an untrusted
+automation branch requiring reset; other API failures remain visible errors.

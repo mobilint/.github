@@ -168,3 +168,6 @@ When the action contract changes, also run the `codex-review-action` tests.
 - Do not push generated badge content to `main`.
 - Do not bypass validation hooks or weaken a security control to make a check
   pass.
+
+Treat a GitHub comparison 404 (including unrelated history) as an untrusted
+automation branch requiring reset; other API failures remain visible errors.
