@@ -115,6 +115,8 @@ Do not assume a change in only one repository completes the feature.
 - Use current action majors that run on the supported GitHub Actions Node.js
   runtime; use `actions/checkout@v6`.
 - Pin cross-repository executable actions to reviewed full commit SHAs.
+  Canary the exact candidate via a direct action invocation before promoting
+  the production pin; then validate the updated central routing.
 - Keep the canonical caller conservative because it is copied to other
   repositories.
 - Do not commit generated clone badge JSON to `main`; keep it on `badges`.

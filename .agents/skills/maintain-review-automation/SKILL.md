@@ -64,6 +64,8 @@ templates, formatter, and tests whenever the shared contract is affected.
 - Keep clone badge output on the orphan `badges` branch.
 - Use `actions/checkout@v6`.
 - Pin cross-repository executable actions to reviewed full commit SHAs.
+  Canary the exact candidate via a direct action invocation before promoting
+  the production pin; then validate the updated central routing.
 - For pull-request checks, reject non-`100644` index entries and compare Git
   blob IDs without dereferencing or printing PR-controlled working-tree paths.
 - Set `persist-credentials: false` on read-only checkouts that do not need to

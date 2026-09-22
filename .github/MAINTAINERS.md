@@ -155,11 +155,20 @@ The reusable workflow pins the review action to an immutable, reviewed commit.
 The central reusable workflow itself remains on `@main`; neither central
 repository currently has a validated `stable` branch. The release sequence is:
 
-1. Merge compatible `.github` and action changes on `main`.
-2. Canary automatic and mention behavior on a controlled repository.
+1. Merge reviewed action changes on `main` and record the exact candidate SHA.
+   Keep the production reusable workflow's action pin unchanged during testing.
+2. In a controlled repository, use a dedicated trusted canary workflow that
+   invokes `mobilint/codex-review-action@<candidate-SHA>` directly, with explicit
+   `auto` and `mention` inputs and their corresponding event contexts. Do not
+   route this canary through the production reusable workflow, which still
+   references the old action. Verify checkout, sandbox, and review delivery.
 3. Create and protect `stable` branches in both central repositories.
-4. Advance the reusable workflow's action SHA to the canary-tested commit.
-5. Change the canonical caller to call the reusable workflow at `@stable`.
+4. Through a reviewed PR, advance the reusable workflow's action pin to exactly
+   the SHA exercised by the direct-action canary and synchronize its contract
+   fixture. Validate automatic and mention routing through the updated central
+   workflow in the controlled repository before distributing the caller.
+5. Change the canonical caller to call the validated reusable workflow at
+   `@stable`.
 6. Copy the updated caller manually or run the local synchronizer explicitly.
 
 Organization administrators must create branch protection for both `stable`
