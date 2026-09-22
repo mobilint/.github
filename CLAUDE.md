@@ -85,7 +85,7 @@ Do not assume a change in only one repository completes the feature.
 - Keep `review_on_member_pr_only: true` unless an explicit security review
   approves a broader caller.
 - Keep `allow_unsafe_no_sandbox_fallback: false` hard-coded in the reusable
-  workflow; never expose sandbox fallback policy to callers.
+  workflow; retain the deprecated input for compatibility but ignore its value.
 - Fail closed when the Codex sandbox cannot start. Never enable
   `--dangerously-bypass-approvals-and-sandbox` through a shared example.
 - Run trust checks before dispatching work to the self-hosted runner.

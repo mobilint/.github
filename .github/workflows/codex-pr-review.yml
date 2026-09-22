@@ -38,6 +38,11 @@ on:
         required: false
         type: boolean
         default: false
+      allow_unsafe_no_sandbox_fallback:
+        description: Deprecated compatibility input; ignored because sandbox fallback is always disabled
+        required: false
+        type: boolean
+        default: false
       max_concurrent_mention_reviews:
         description: Maximum active mention-triggered Codex reviews allowed per PR
         required: false

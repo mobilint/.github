@@ -38,3 +38,7 @@ no unattended cross-repository credential workflow is installed.
 Maintainers should use the
 [automation operations guide](.github/MAINTAINERS.md) for architecture, enrollment,
 manual synchronization, validation, release, and rollback procedures.
+
+The reusable workflow always uses the read-only sandbox and disables unsafe
+fallback. The deprecated `allow_unsafe_no_sandbox_fallback` input is accepted
+for compatibility but ignored, regardless of its value.

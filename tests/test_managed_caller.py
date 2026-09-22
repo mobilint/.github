@@ -135,10 +135,11 @@ class ManagedCallerTests(unittest.TestCase):
             "Codex review did not complete successfully.",
         ):
             self.assertIn(fragment, text)
-        self.assertNotRegex(
+        self.assertRegex(
             text,
             r"(?m)^      allow_unsafe_no_sandbox_fallback:$",
         )
+        self.assertNotIn("inputs.allow_unsafe_no_sandbox_fallback", text)
         self.assertNotIn("pull_request_target", text)
 
     def test_unattended_app_synchronizer_is_not_installed(self) -> None:
