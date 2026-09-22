@@ -121,6 +121,14 @@ class ManagedCallerTests(unittest.TestCase):
         }
         self.assertEqual(passed, set(contract["action_inputs"]))
 
+    def test_reusable_action_is_pinned_to_an_immutable_commit(self) -> None:
+        text = REUSABLE.read_text(encoding="utf-8")
+        self.assertRegex(
+            text,
+            r"(?m)uses: mobilint/codex-review-action@[0-9a-f]{40}$",
+        )
+        self.assertNotIn("uses: mobilint/codex-review-action@main", text)
+
     def test_reusable_workflow_preserves_review_boundaries(self) -> None:
         text = REUSABLE.read_text(encoding="utf-8")
         for fragment in (

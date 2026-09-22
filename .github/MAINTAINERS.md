@@ -8,7 +8,7 @@ repository root README remains a user-facing overview.
 ```text
 consumer .github/workflows/code-review.yml
   -> mobilint/.github/.github/workflows/codex-pr-review.yml@main
-  -> mobilint/codex-review-action@main
+  -> mobilint/codex-review-action@bdaf8ad5e67ed8b51253ff34793c668a66d67924
   -> self-hosted runner group codex, label codex-reviewer
 ```
 
@@ -142,13 +142,14 @@ explicit `--dry-run` for live API validation.
 
 ## Release channel
 
-Production references remain on `@main`; neither central repository currently
-has a validated `stable` branch. The release sequence is:
+The reusable workflow pins the review action to an immutable, reviewed commit.
+The central reusable workflow itself remains on `@main`; neither central
+repository currently has a validated `stable` branch. The release sequence is:
 
 1. Merge compatible `.github` and action changes on `main`.
 2. Canary automatic and mention behavior on a controlled repository.
 3. Create and protect `stable` branches in both central repositories.
-4. Change the reusable workflow to call the action at `@stable`.
+4. Advance the reusable workflow's action SHA to the canary-tested commit.
 5. Change the canonical caller to call the reusable workflow at `@stable`.
 6. Copy the updated caller manually or run the local synchronizer explicitly.
 

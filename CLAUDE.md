@@ -43,9 +43,9 @@ the same change and run the relevant validation before finishing.
 
 ## Cross-Repository Contract
 
-The reusable workflow calls `mobilint/codex-review-action@main`. When changing
-an action input, reaction lifecycle, event mode, prompt behavior, finding
-format, sandbox policy, or delivery behavior:
+The reusable workflow calls `mobilint/codex-review-action` at an immutable
+commit SHA. When changing an action input, reaction lifecycle, event mode,
+prompt behavior, finding format, sandbox policy, or delivery behavior:
 
 1. Inspect `../codex-review-action/action.yml`.
 2. Update the action implementation and tests when its contract changes.
@@ -111,6 +111,7 @@ Do not assume a change in only one repository completes the feature.
   `pull_request_review_comment` and `issue_comment`.
 - Use current action majors that run on the supported GitHub Actions Node.js
   runtime; use `actions/checkout@v6`.
+- Pin cross-repository executable actions to reviewed full commit SHAs.
 - Keep the canonical caller conservative because it is copied to other
   repositories.
 - Do not commit generated clone badge JSON to `main`; keep it on `badges`.
