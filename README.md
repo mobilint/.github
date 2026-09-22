@@ -22,8 +22,8 @@ do not require hand-editing every repository.
 The managed caller supports:
 
 - automatic review for trusted pull-request authors;
-- direct `@mobilint-review` requests in PR comments, review comments, and
-  submitted review bodies;
+- direct `@mobilint-review` requests from trusted commenters in PR comments,
+  review comments, and submitted review bodies;
 - temporary 👀 acknowledgement followed by a review, visible error, or 👍 for
   a clean result;
 - central P0/P1/P2 review findings on the self-hosted Codex reviewer.
