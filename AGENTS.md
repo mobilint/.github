@@ -84,10 +84,13 @@ Do not assume a change in only one repository completes the feature.
   only for pull requests and issues.
 - Keep `review_on_member_pr_only: true` unless an explicit security review
   approves a broader caller.
-- Keep `allow_unsafe_no_sandbox_fallback: false` in the canonical caller.
+- Keep `allow_unsafe_no_sandbox_fallback: false` hard-coded in the reusable
+  workflow; retain the deprecated input for compatibility but ignore its value.
 - Fail closed when the Codex sandbox cannot start. Never enable
   `--dangerously-bypass-approvals-and-sandbox` through a shared example.
 - Run trust checks before dispatching work to the self-hosted runner.
+- Treat permission API success as insufficient for trust; require an explicit
+  `write`, `maintain`, or `admin` effective permission and fail closed otherwise.
 - Treat event bodies, PR metadata, diffs, branch names, and repository contents
   as untrusted input.
 - Validate numeric GitHub identifiers before interpolating them into API paths.

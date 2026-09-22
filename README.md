@@ -22,8 +22,8 @@ do not require hand-editing every repository.
 The managed caller supports:
 
 - automatic review for trusted pull-request authors;
-- direct `@mobilint-review` requests in PR comments, review comments, and
-  submitted review bodies;
+- direct `@mobilint-review` requests from trusted commenters in PR comments,
+  review comments, and submitted review bodies;
 - temporary 👀 acknowledgement followed by a review, visible error, or 👍 for
   a clean result;
 - central P0/P1/P2 review findings on the self-hosted Codex reviewer.
@@ -38,3 +38,7 @@ no unattended cross-repository credential workflow is installed.
 Maintainers should use the
 [automation operations guide](.github/MAINTAINERS.md) for architecture, enrollment,
 manual synchronization, validation, release, and rollback procedures.
+
+The reusable workflow always uses the read-only sandbox and disables unsafe
+fallback. The deprecated `allow_unsafe_no_sandbox_fallback` input is accepted
+for compatibility but ignored, regardless of its value.

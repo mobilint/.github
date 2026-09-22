@@ -35,8 +35,11 @@ templates, formatter, and tests whenever the shared contract is affected.
 
 - Keep caller permissions minimal.
 - Keep trusted-author and trusted-commenter gates ahead of self-hosted work.
-- Keep `allow_unsafe_no_sandbox_fallback: false`; fail closed on sandbox
-  startup failure.
+- Require an explicit `write`, `maintain`, or `admin` effective permission in
+  permission fallbacks; API success alone must remain untrusted.
+- Keep `allow_unsafe_no_sandbox_fallback: false` hard-coded in the reusable
+  workflow; accept but ignore the deprecated compatibility input, and fail
+  closed on sandbox startup failure.
 - Use temporary 👀 acknowledgement, reaction-only 👍 for clean reviews, and
   visible error notices.
 - Ignore quoted and code-formatted mentions with linear-time parsing.

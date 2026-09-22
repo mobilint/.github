@@ -23,6 +23,9 @@ explicitly opts in.
 The gate runs on GitHub-hosted infrastructure before untrusted PR content can
 reach the self-hosted runner. Caller distribution is an operator-run maintenance
 task; no GitHub App or scheduled cross-repository writer is used.
+When event association metadata is inconclusive, the permission fallback trusts
+only an explicit `write`, `maintain`, or `admin` effective repository permission;
+API success by itself and `read` or `none` permissions remain untrusted.
 
 ## Canonical managed caller
 
@@ -58,10 +61,13 @@ Normal callers pass no `with:` values. Current central defaults include:
 - read-only sandbox with unsafe fallback disabled.
 
 The existing `workflow_call` inputs remain supported for backward compatibility
-while repositories migrate. No Actions-variable override layer is enabled yet;
-repository-specific `CODEX_REVIEW_*` variables are reserved for a future,
-strictly parsed profile system. Security-sensitive trust, permissions, runner,
-ownership, and sandbox settings remain central.
+while repositories migrate. `allow_unsafe_no_sandbox_fallback` is deprecated
+and ignored, including when a legacy caller passes `true`. Sandbox mode and unsafe
+fallback behavior are not caller-configurable: the reusable workflow hard-codes
+a read-only sandbox and fails closed when it cannot start. No Actions-variable
+override layer is enabled yet; repository-specific `CODEX_REVIEW_*` variables
+are reserved for a future, strictly parsed profile system. Security-sensitive
+trust, permissions, runner, ownership, and sandbox settings remain central.
 
 ## Enrolling and disabling repositories
 
