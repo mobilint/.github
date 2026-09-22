@@ -42,3 +42,7 @@ manual synchronization, validation, release, and rollback procedures.
 The reusable workflow always uses the read-only sandbox and disables unsafe
 fallback. The deprecated `allow_unsafe_no_sandbox_fallback` input is accepted
 for compatibility but ignored, regardless of its value.
+
+Caller audits also inspect existing automation branches when the default caller
+is current. Synchronization rejects symlink callers and repairs untrusted
+automation branch changes before retaining managed PR metadata.

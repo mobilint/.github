@@ -52,6 +52,9 @@ templates, formatter, and tests whenever the shared contract is affected.
   reusable-workflow call. Do not duplicate policy inputs.
 - Distribute callers through the manifest and idempotent automation pull
   requests; never write a consumer default branch.
+- Treat existing automation branches as untrusted: require ancestry from the
+  current default branch and an exact managed-caller-only diff, resetting them
+  otherwise, and verify the complete diff before applying PR metadata.
 - Keep caller audits and synchronization operator-run. Do not add an unattended
   cross-repository credential workflow.
 - Keep same-repository template copying on GitHub-hosted runners, restrict it to
@@ -102,3 +105,10 @@ git diff --check
 Run the `codex-review-action` unit and shell checks when changing the
 cross-repository action contract. Inspect the final diff for secure defaults
 and copied-example safety before committing.
+
+Treat a GitHub comparison 404 (including unrelated history) as an untrusted
+automation branch requiring reset; other API failures remain visible errors.
+
+Audit existing automation branches even when the default caller is current.
+Require the caller to be a regular 100644 Git blob with canonical identity;
+never trust a symlink-dereferencing Contents API response for caller equality.

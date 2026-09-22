@@ -124,6 +124,9 @@ Do not assume a change in only one repository completes the feature.
   write token.
 - Synchronize consumers only through deterministic branches and pull requests;
   never push their default branches.
+- Treat existing automation branches as untrusted: require ancestry from the
+  current default branch and an exact managed-caller-only diff, resetting them
+  otherwise, and verify the complete diff before applying PR metadata.
 - Do not add an unattended cross-repository credential workflow. Caller audits
   and synchronization are explicit operator-run maintenance tasks.
 
@@ -168,3 +171,10 @@ When the action contract changes, also run the `codex-review-action` tests.
 - Do not push generated badge content to `main`.
 - Do not bypass validation hooks or weaken a security control to make a check
   pass.
+
+Treat a GitHub comparison 404 (including unrelated history) as an untrusted
+automation branch requiring reset; other API failures remain visible errors.
+
+Audit existing automation branches even when the default caller is current.
+Require the caller to be a regular 100644 Git blob with canonical identity;
+never trust a symlink-dereferencing Contents API response for caller equality.

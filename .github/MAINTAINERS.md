@@ -108,7 +108,12 @@ added deliberately.
 branch through the GitHub API, classifies the caller, and creates or updates the
 deterministic `automation/sync-codex-review` branch and one pull request. It
 never writes the default branch. Existing automation PRs are reused, and an
-already-current branch produces no commit or metadata update.
+already-current branch produces no commit or metadata update. Before applying
+trusted PR metadata, the synchronizer requires the automation branch to descend
+from the current default branch and to change exactly the managed caller path.
+A comparison 404, including unrelated history, also fails this check; other
+API errors abort visibly. It resets a branch that fails that check and verifies the complete diff again
+after writing the caller.
 
 Run it from a trusted administrator workstation or the existing maintenance
 server using an explicitly authenticated `gh` session. It is not invoked by
@@ -178,3 +183,10 @@ settings by itself.
 
 Comment/review events that require default-branch workflows will not run until
 the managed caller has merged into the consumer's default branch.
+
+Caller reads traverse non-recursive Git trees and read verified regular blobs,
+without following symlinks. Branch reuse requires both the expected diff and
+the canonical caller blob identity. Even when the default caller is current,
+check/dry-run reports an untrusted existing branch as drift; apply resets it
+to the default branch and verifies it before reporting synchronization. A
+regular already-current branch remains idempotent and produces no write.
