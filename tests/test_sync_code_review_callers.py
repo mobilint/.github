@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import tempfile
 import io
+import base64
 from unittest.mock import patch
 from urllib.error import HTTPError
 import unittest
@@ -25,6 +26,7 @@ class RepoState:
     actions: bool = True
     branches: dict[str, str] = field(default_factory=dict)
     files: dict[str, dict[str, tuple[str, str]]] = field(default_factory=dict)
+    modes: dict[str, dict[str, str]] = field(default_factory=dict)
     pull: dict | None = None
 
     def __post_init__(self) -> None:
@@ -59,6 +61,7 @@ class FakeService:
         source = next(key for key, value in state.branches.items() if value == sha)
         state.branches[branch] = f"{branch}-sha"
         state.files[branch] = dict(state.files[source])
+        state.modes[branch] = dict(state.modes.get(source, {}))
 
     def reset_branch(self, name: str, branch: str, sha: str) -> None:
         self.calls.append(("reset_branch", name, branch, sha))
@@ -66,6 +69,7 @@ class FakeService:
         source = next(key for key, value in state.branches.items() if value == sha)
         state.branches[branch] = sha
         state.files[branch] = dict(state.files[source])
+        state.modes[branch] = dict(state.modes.get(source, {}))
 
     def compare_branch(
         self, name: str, base: str, head: str
@@ -80,6 +84,13 @@ class FakeService:
             if base_files.get(path) != head_files.get(path)
         )
         return ("ahead" if paths else "identical"), paths
+
+    def file_entry(self, name: str, path: str, branch: str) -> tuple[str, str] | None:
+        state = self.states[name]
+        value = state.files.get(branch, {}).get(path)
+        if value is None:
+            return None
+        return state.modes.get(branch, {}).get(path, "100644"), sync.git_blob_sha(value[0])
 
     def file_content(
         self, name: str, path: str, branch: str
@@ -96,6 +107,7 @@ class FakeService:
         current_sha: str | None,
     ) -> None:
         self.calls.append(("put_file", name, path, branch, current_sha))
+        self.states[name].modes.setdefault(branch, {})[path] = "100644"
         self.states[name].files.setdefault(branch, {})[path] = (
             content,
             "managed-file-sha",
@@ -334,6 +346,68 @@ jobs:
                     else:
                         with self.assertRaises(sync.SyncError):
                             api.compare_branch("mobilint/example", "main", "orphan")
+
+    def test_current_default_still_audits_stale_automation_branch(self) -> None:
+        state = RepoState()
+        state.files["main"][sync.CALLER_PATH] = (CANONICAL, "canonical-sha")
+        state.branches[sync.AUTOMATION_BRANCH] = "attacker-sha"
+        state.files[sync.AUTOMATION_BRANCH] = dict(state.files["main"])
+        state.files[sync.AUTOMATION_BRANCH]["backdoor.py"] = ("bad", "bad-sha")
+        state.pull = {"number": 1, "title": sync.PR_TITLE, "body": sync.pull_request_body()}
+        service = FakeService({"mobilint/example": state})
+        audit = sync.sync_repository(service, config(), CANONICAL, dry_run=True)
+        self.assertEqual(audit.status, "would_sync")
+        self.assertTrue(audit.changed)
+        self.assertIn("backdoor.py", state.files[sync.AUTOMATION_BRANCH])
+        self.assertFalse(any(call[0] == "reset_branch" for call in service.calls))
+        applied = sync.sync_repository(service, config(), CANONICAL, dry_run=False)
+        self.assertEqual(applied.status, "synchronized")
+        self.assertTrue(applied.changed)
+        self.assertEqual(state.files[sync.AUTOMATION_BRANCH], state.files["main"])
+        self.assertFalse(any(call[0] in {"create_pull_request", "update_pull_request"}
+                             for call in service.calls))
+        again = sync.sync_repository(service, config(), CANONICAL, dry_run=False)
+        self.assertEqual(again.status, "synchronized")
+        self.assertFalse(again.changed)
+
+    def test_canonical_text_in_symlink_is_rebuilt_as_regular_blob(self) -> None:
+        state = RepoState()
+        state.branches[sync.AUTOMATION_BRANCH] = "attacker-sha"
+        state.files[sync.AUTOMATION_BRANCH] = {sync.CALLER_PATH: (CANONICAL, "resolved-target-sha")}
+        state.modes[sync.AUTOMATION_BRANCH] = {sync.CALLER_PATH: "120000"}
+        service = FakeService({"mobilint/example": state})
+        result = sync.sync_repository(service, config(), CANONICAL, dry_run=False)
+        self.assertEqual(result.status, "pull_request_created")
+        self.assertEqual(service.file_entry("mobilint/example", sync.CALLER_PATH, sync.AUTOMATION_BRANCH),
+                         ("100644", sync.git_blob_sha(CANONICAL)))
+        calls = [call[0] for call in service.calls]
+        self.assertLess(calls.index("reset_branch"), calls.index("put_file"))
+        self.assertLess(calls.index("put_file"), calls.index("create_pull_request"))
+
+    def test_git_tree_boundary_rejects_symlink_without_reading_target(self) -> None:
+        api = sync.GitHubAPI("test-token")
+        sha = sync.git_blob_sha(CANONICAL)
+        for mode in ("120000", "100755", "100644"):
+            with self.subTest(mode=mode):
+                tree = {"tree": [{"path": "caller.yml", "mode": mode, "type": "blob", "sha": sha}]}
+                blob = {"encoding": "base64", "content": base64.b64encode(CANONICAL.encode()).decode()}
+                with patch.object(api, "_request", side_effect=[tree, blob]) as request:
+                    if mode == "100644":
+                        self.assertEqual(api.file_content("mobilint/example", "caller.yml", "main"),
+                                         (CANONICAL, sha))
+                        self.assertEqual(request.call_count, 2)
+                    else:
+                        with self.assertRaisesRegex(sync.SyncError, "100644"):
+                            api.file_content("mobilint/example", "caller.yml", "main")
+                        self.assertEqual(request.call_count, 1)
+
+    def test_git_tree_walk_rejects_truncation_and_parent_symlinks(self) -> None:
+        api = sync.GitHubAPI("test-token")
+        for tree in ({"tree": [], "truncated": True},
+                     {"tree": [{"path": ".github", "mode": "120000", "type": "blob", "sha": "a" * 40}]}):
+            with patch.object(api, "_request", return_value=tree):
+                with self.assertRaises(sync.SyncError):
+                    api.file_entry("mobilint/example", sync.CALLER_PATH, "main")
 
     def test_second_apply_is_idempotent(self) -> None:
         state = RepoState()

@@ -180,3 +180,10 @@ settings by itself.
 
 Comment/review events that require default-branch workflows will not run until
 the managed caller has merged into the consumer's default branch.
+
+Caller reads traverse non-recursive Git trees and read verified regular blobs,
+without following symlinks. Branch reuse requires both the expected diff and
+the canonical caller blob identity. Even when the default caller is current,
+check/dry-run reports an untrusted existing branch as drift; apply resets it
+to the default branch and verifies it before reporting synchronization. A
+regular already-current branch remains idempotent and produces no write.

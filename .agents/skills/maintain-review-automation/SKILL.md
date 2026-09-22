@@ -108,3 +108,7 @@ and copied-example safety before committing.
 
 Treat a GitHub comparison 404 (including unrelated history) as an untrusted
 automation branch requiring reset; other API failures remain visible errors.
+
+Audit existing automation branches even when the default caller is current.
+Require the caller to be a regular 100644 Git blob with canonical identity;
+never trust a symlink-dereferencing Contents API response for caller equality.
