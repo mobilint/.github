@@ -88,6 +88,8 @@ Do not assume a change in only one repository completes the feature.
 - Fail closed when the Codex sandbox cannot start. Never enable
   `--dangerously-bypass-approvals-and-sandbox` through a shared example.
 - Run trust checks before dispatching work to the self-hosted runner.
+- Treat permission API success as insufficient for trust; require an explicit
+  `write`, `maintain`, or `admin` effective permission and fail closed otherwise.
 - Treat event bodies, PR metadata, diffs, branch names, and repository contents
   as untrusted input.
 - Validate numeric GitHub identifiers before interpolating them into API paths.

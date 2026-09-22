@@ -308,6 +308,25 @@ jobs:
           commenter_trusted=true
           pr_allowed=false
 
+          has_trusted_repository_permission() {
+            local login="$1"
+            local permission
+
+            permission="$(
+              gh api "/repos/${REPO}/collaborators/${login}/permission" \
+                --jq '.permission // empty' 2>/dev/null
+            )" || return 1
+
+            case "${permission}" in
+              admin|maintain|write)
+                return 0
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+          }
+
           case "${PR_AUTHOR_ASSOCIATION}" in
             OWNER|MEMBER|COLLABORATOR)
               pr_author_trusted=true
@@ -315,15 +334,10 @@ jobs:
           esac
 
           # Some GitHub event payloads surface author_association inconsistently.
-          # Fall back to checking whether the PR author actually has repository access.
-          if [[ "${pr_author_trusted}" != "true" && -n "${PR_AUTHOR}" ]]; then
-            set +e
-            gh api "/repos/${REPO}/collaborators/${PR_AUTHOR}/permission" >/dev/null 2>&1
-            collaborator_check_exit=$?
-            set -e
-            if [[ ${collaborator_check_exit} -eq 0 ]]; then
-              pr_author_trusted=true
-            fi
+          # Fall back to an explicit write-level repository permission.
+          if [[ "${pr_author_trusted}" != "true" && -n "${PR_AUTHOR}" ]] &&
+            has_trusted_repository_permission "${PR_AUTHOR}"; then
+            pr_author_trusted=true
           fi
 
           if [[ "${GITHUB_EVENT_NAME}" != "pull_request" ]]; then
@@ -334,14 +348,9 @@ jobs:
                 ;;
             esac
 
-            if [[ "${commenter_trusted}" != "true" && -n "${COMMENTER}" ]]; then
-              set +e
-              gh api "/repos/${REPO}/collaborators/${COMMENTER}/permission" >/dev/null 2>&1
-              commenter_check_exit=$?
-              set -e
-              if [[ ${commenter_check_exit} -eq 0 ]]; then
-                commenter_trusted=true
-              fi
+            if [[ "${commenter_trusted}" != "true" && -n "${COMMENTER}" ]] &&
+              has_trusted_repository_permission "${COMMENTER}"; then
+              commenter_trusted=true
             fi
           fi
 
