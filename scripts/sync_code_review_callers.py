@@ -71,6 +71,10 @@ class RepositoryService(Protocol):
 
     def create_branch(self, name: str, branch: str, sha: str) -> None: ...
 
+    def reset_branch(self, name: str, branch: str, sha: str) -> None: ...
+
+    def compare_branch(self, name: str, base: str, head: str) -> tuple[str, list[str]]: ...
+
     def file_content(self, name: str, path: str, branch: str) -> tuple[str, str] | None: ...
 
     def put_file(
@@ -187,6 +191,36 @@ class GitHubAPI:
             f"{self._repo_path(name)}/git/refs",
             {"ref": f"refs/heads/{branch}", "sha": sha},
         )
+
+    def reset_branch(self, name: str, branch: str, sha: str) -> None:
+        validate_branch_name(branch)
+        self._request(
+            "PATCH",
+            f"{self._repo_path(name)}/git/refs/heads/{quote(branch, safe='/')}",
+            {"sha": sha, "force": True},
+        )
+
+    def compare_branch(self, name: str, base: str, head: str) -> tuple[str, list[str]]:
+        validate_branch_name(base)
+        validate_branch_name(head)
+        result = self._request(
+            "GET",
+            f"{self._repo_path(name)}/compare/{quote(base, safe='')}..."
+            f"{quote(head, safe='')}",
+        )
+        files = result.get("files", [])
+        if not isinstance(files, list):
+            raise SyncError(f"{name}: comparison returned invalid files data")
+        try:
+            paths = [str(file["filename"]) for file in files]
+            paths.extend(
+                str(file["previous_filename"])
+                for file in files
+                if "previous_filename" in file
+            )
+        except (KeyError, TypeError) as error:
+            raise SyncError(f"{name}: comparison returned invalid file data") from error
+        return str(result.get("status", "")), paths
 
     def file_content(self, name: str, path: str, branch: str) -> tuple[str, str] | None:
         validate_branch_name(branch)
@@ -440,12 +474,18 @@ def sync_repository(
             message=f"would synchronize {classification} caller through a pull request",
         )
 
+    default_sha = service.branch_sha(config.name, default_branch)
+    if default_sha is None:
+        raise SyncError(f"{config.name}: default branch ref is missing")
     branch_sha = service.branch_sha(config.name, AUTOMATION_BRANCH)
     if branch_sha is None:
-        default_sha = service.branch_sha(config.name, default_branch)
-        if default_sha is None:
-            raise SyncError(f"{config.name}: default branch ref is missing")
         service.create_branch(config.name, AUTOMATION_BRANCH, default_sha)
+    else:
+        comparison, paths = service.compare_branch(
+            config.name, default_branch, AUTOMATION_BRANCH
+        )
+        if comparison != "ahead" or set(paths) != {CALLER_PATH}:
+            service.reset_branch(config.name, AUTOMATION_BRANCH, default_sha)
 
     branch_file = service.file_content(config.name, CALLER_PATH, AUTOMATION_BRANCH)
     branch_content = branch_file[0] if branch_file else None
@@ -458,6 +498,14 @@ def sync_repository(
             AUTOMATION_BRANCH,
             canonical,
             branch_file_sha,
+        )
+
+    comparison, paths = service.compare_branch(
+        config.name, default_branch, AUTOMATION_BRANCH
+    )
+    if comparison != "ahead" or set(paths) != {CALLER_PATH}:
+        raise SyncError(
+            f"{config.name}: refusing automation pull request with unexpected diff"
         )
 
     body = pull_request_body()

@@ -49,6 +49,9 @@ templates, formatter, and tests whenever the shared contract is affected.
   reusable-workflow call. Do not duplicate policy inputs.
 - Distribute callers through the manifest and idempotent automation pull
   requests; never write a consumer default branch.
+- Treat existing automation branches as untrusted: require ancestry from the
+  current default branch and an exact managed-caller-only diff, resetting them
+  otherwise, and verify the complete diff before applying PR metadata.
 - Keep caller audits and synchronization operator-run. Do not add an unattended
   cross-repository credential workflow.
 - Keep same-repository template copying on GitHub-hosted runners, restrict it to

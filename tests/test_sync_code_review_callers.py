@@ -57,6 +57,27 @@ class FakeService:
         state.branches[branch] = f"{branch}-sha"
         state.files[branch] = dict(state.files[source])
 
+    def reset_branch(self, name: str, branch: str, sha: str) -> None:
+        self.calls.append(("reset_branch", name, branch, sha))
+        state = self.states[name]
+        source = next(key for key, value in state.branches.items() if value == sha)
+        state.branches[branch] = sha
+        state.files[branch] = dict(state.files[source])
+
+    def compare_branch(
+        self, name: str, base: str, head: str
+    ) -> tuple[str, list[str]]:
+        self.calls.append(("compare_branch", name, base, head))
+        state = self.states[name]
+        base_files = state.files.get(base, {})
+        head_files = state.files.get(head, {})
+        paths = sorted(
+            path
+            for path in set(base_files) | set(head_files)
+            if base_files.get(path) != head_files.get(path)
+        )
+        return ("ahead" if paths else "identical"), paths
+
     def file_content(
         self, name: str, path: str, branch: str
     ) -> tuple[str, str] | None:
@@ -261,6 +282,23 @@ jobs:
         self.assertFalse(
             any(call[0] == "create_pull_request" for call in service.calls)
         )
+
+    def test_existing_branch_with_unrelated_change_is_reset(self) -> None:
+        state = RepoState()
+        state.branches[sync.AUTOMATION_BRANCH] = "untrusted-sha"
+        state.files[sync.AUTOMATION_BRANCH] = {
+            sync.CALLER_PATH: (sync.MANAGED_PREFIX + "old\n", "old-sha"),
+            "src/backdoor.py": ("malicious\n", "backdoor-sha"),
+        }
+        service = FakeService({"mobilint/example": state})
+
+        result = sync.sync_repository(
+            service, config(), CANONICAL, dry_run=False
+        )
+
+        self.assertEqual(result.status, "pull_request_created")
+        self.assertTrue(any(call[0] == "reset_branch" for call in service.calls))
+        self.assertNotIn("src/backdoor.py", state.files[sync.AUTOMATION_BRANCH])
 
     def test_second_apply_is_idempotent(self) -> None:
         state = RepoState()

@@ -99,7 +99,11 @@ added deliberately.
 branch through the GitHub API, classifies the caller, and creates or updates the
 deterministic `automation/sync-codex-review` branch and one pull request. It
 never writes the default branch. Existing automation PRs are reused, and an
-already-current branch produces no commit or metadata update.
+already-current branch produces no commit or metadata update. Before applying
+trusted PR metadata, the synchronizer requires the automation branch to descend
+from the current default branch and to change exactly the managed caller path.
+It resets a branch that fails that check and verifies the complete diff again
+after writing the caller.
 
 Run it from a trusted administrator workstation or the existing maintenance
 server using an explicitly authenticated `gh` session. It is not invoked by
