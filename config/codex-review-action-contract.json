@@ -11,8 +11,7 @@
       "required": true
     },
     "mode": {
-      "required": false,
-      "default": "auto"
+      "required": false
     },
     "comment_id": {
       "required": false,

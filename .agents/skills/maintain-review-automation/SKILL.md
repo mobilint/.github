@@ -66,6 +66,12 @@ templates, formatter, and tests whenever the shared contract is affected.
   comments and issue comments.
 - Keep clone badge output on the orphan `badges` branch.
 - Use `actions/checkout@v6`.
+- Pin cross-repository executable actions to reviewed full commit SHAs.
+  Canary the exact candidate via a direct action invocation before promoting
+  the production pin; then validate the updated central routing. Advance the
+  stable workflow ref to that validated commit and test it before distribution.
+  Rollbacks must also advance and validate every deployed workflow channel;
+  reverting main alone does not repair stable consumers.
 - For pull-request checks, reject non-`100644` index entries and compare Git
   blob IDs without dereferencing or printing PR-controlled working-tree paths.
 - Set `persist-credentials: false` on read-only checkouts that do not need to
@@ -105,6 +111,10 @@ git diff --check
 Run the `codex-review-action` unit and shell checks when changing the
 cross-repository action contract. Inspect the final diff for secure defaults
 and copied-example safety before committing.
+
+The action infers omitted mode from the event; the reusable workflow deliberately
+passes the gate-resolved mode explicitly. Keep the shared fixture synchronized
+with the pinned action manifest, including the absence of a mode default.
 
 Treat a GitHub comparison 404 (including unrelated history) as an untrusted
 automation branch requiring reset; other API failures remain visible errors.

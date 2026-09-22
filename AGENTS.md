@@ -43,9 +43,9 @@ the same change and run the relevant validation before finishing.
 
 ## Cross-Repository Contract
 
-The reusable workflow calls `mobilint/codex-review-action@main`. When changing
-an action input, reaction lifecycle, event mode, prompt behavior, finding
-format, sandbox policy, or delivery behavior:
+The reusable workflow calls `mobilint/codex-review-action` at an immutable
+commit SHA. When changing an action input, reaction lifecycle, event mode,
+prompt behavior, finding format, sandbox policy, or delivery behavior:
 
 1. Inspect `../codex-review-action/action.yml`.
 2. Update the action implementation and tests when its contract changes.
@@ -114,6 +114,12 @@ Do not assume a change in only one repository completes the feature.
   `pull_request_review_comment` and `issue_comment`.
 - Use current action majors that run on the supported GitHub Actions Node.js
   runtime; use `actions/checkout@v6`.
+- Pin cross-repository executable actions to reviewed full commit SHAs.
+  Canary the exact candidate via a direct action invocation before promoting
+  the production pin; then validate the updated central routing. Advance the
+  stable workflow ref to that validated commit and test it before distribution.
+  Rollbacks must also advance and validate every deployed workflow channel;
+  reverting main alone does not repair stable consumers.
 - Keep the canonical caller conservative because it is copied to other
   repositories.
 - Do not commit generated clone badge JSON to `main`; keep it on `badges`.
@@ -171,6 +177,10 @@ When the action contract changes, also run the `codex-review-action` tests.
 - Do not push generated badge content to `main`.
 - Do not bypass validation hooks or weaken a security control to make a check
   pass.
+
+The action infers omitted mode from the event; the reusable workflow deliberately
+passes the gate-resolved mode explicitly. Keep the shared fixture synchronized
+with the pinned action manifest, including the absence of a mode default.
 
 Treat a GitHub comparison 404 (including unrelated history) as an untrusted
 automation branch requiring reset; other API failures remain visible errors.

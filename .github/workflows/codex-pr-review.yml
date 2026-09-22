@@ -680,7 +680,9 @@ jobs:
 
     steps:
       - name: Run Codex review
-        uses: mobilint/codex-review-action@main
+        # Pin third-party executable code to a reviewed commit. Update this SHA
+        # deliberately alongside the action contract and its test suite.
+        uses: mobilint/codex-review-action@2454440c864b485d23ae3c3a4078f0adb445c497
         with:
           repo: ${{ needs.gate.outputs.repo }}
           pr_number: ${{ needs.gate.outputs.pr_number }}
