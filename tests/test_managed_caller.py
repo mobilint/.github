@@ -130,11 +130,15 @@ class ManagedCallerTests(unittest.TestCase):
             "group: codex",
             "labels: codex-reviewer",
             "sandbox_mode: read-only",
-            "allow_unsafe_no_sandbox_fallback:",
+            "allow_unsafe_no_sandbox_fallback: false",
             "needs.gate.outputs.run_local == 'true'",
             "Codex review did not complete successfully.",
         ):
             self.assertIn(fragment, text)
+        self.assertNotRegex(
+            text,
+            r"(?m)^      allow_unsafe_no_sandbox_fallback:$",
+        )
         self.assertNotIn("pull_request_target", text)
 
     def test_unattended_app_synchronizer_is_not_installed(self) -> None:
