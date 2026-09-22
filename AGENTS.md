@@ -116,7 +116,8 @@ Do not assume a change in only one repository completes the feature.
   runtime; use `actions/checkout@v6`.
 - Pin cross-repository executable actions to reviewed full commit SHAs.
   Canary the exact candidate via a direct action invocation before promoting
-  the production pin; then validate the updated central routing.
+  the production pin; then validate the updated central routing. Advance the
+  stable workflow ref to that validated commit and test it before distribution.
 - Keep the canonical caller conservative because it is copied to other
   repositories.
 - Do not commit generated clone badge JSON to `main`; keep it on `badges`.
@@ -127,6 +128,9 @@ Do not assume a change in only one repository completes the feature.
   write token.
 - Synchronize consumers only through deterministic branches and pull requests;
   never push their default branches.
+- Treat existing automation branches as untrusted: require ancestry from the
+  current default branch and an exact managed-caller-only diff, resetting them
+  otherwise, and verify the complete diff before applying PR metadata.
 - Do not add an unattended cross-repository credential workflow. Caller audits
   and synchronization are explicit operator-run maintenance tasks.
 
@@ -175,3 +179,10 @@ When the action contract changes, also run the `codex-review-action` tests.
 The action infers omitted mode from the event; the reusable workflow deliberately
 passes the gate-resolved mode explicitly. Keep the shared fixture synchronized
 with the pinned action manifest, including the absence of a mode default.
+
+Treat a GitHub comparison 404 (including unrelated history) as an untrusted
+automation branch requiring reset; other API failures remain visible errors.
+
+Audit existing automation branches even when the default caller is current.
+Require the caller to be a regular 100644 Git blob with canonical identity;
+never trust a symlink-dereferencing Contents API response for caller equality.

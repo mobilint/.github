@@ -7,6 +7,7 @@ import argparse
 import base64
 from dataclasses import asdict, dataclass
 import json
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -70,6 +71,12 @@ class RepositoryService(Protocol):
     def branch_sha(self, name: str, branch: str) -> str | None: ...
 
     def create_branch(self, name: str, branch: str, sha: str) -> None: ...
+
+    def reset_branch(self, name: str, branch: str, sha: str) -> None: ...
+
+    def compare_branch(self, name: str, base: str, head: str) -> tuple[str, list[str]]: ...
+
+    def file_entry(self, name: str, path: str, branch: str) -> tuple[str, str] | None: ...
 
     def file_content(self, name: str, path: str, branch: str) -> tuple[str, str] | None: ...
 
@@ -188,28 +195,86 @@ class GitHubAPI:
             {"ref": f"refs/heads/{branch}", "sha": sha},
         )
 
-    def file_content(self, name: str, path: str, branch: str) -> tuple[str, str] | None:
+    def reset_branch(self, name: str, branch: str, sha: str) -> None:
         validate_branch_name(branch)
+        self._request(
+            "PATCH",
+            f"{self._repo_path(name)}/git/refs/heads/{quote(branch, safe='/')}",
+            {"sha": sha, "force": True},
+        )
+
+    def compare_branch(self, name: str, base: str, head: str) -> tuple[str, list[str]]:
+        validate_branch_name(base)
+        validate_branch_name(head)
         result = self._request(
             "GET",
-            f"{self._repo_path(name)}/contents/{quote(path, safe='/')}?"
-            f"{urlencode({'ref': branch})}",
+            f"{self._repo_path(name)}/compare/{quote(base, safe='')}..."
+            f"{quote(head, safe='')}",
             allow_not_found=True,
         )
+        # GitHub returns 404 for histories with no common ancestor. Such a
+        # branch must be reset before retaining trusted automation metadata.
         if result is None:
+            return "unavailable", []
+        files = result.get("files", [])
+        if not isinstance(files, list):
+            raise SyncError(f"{name}: comparison returned invalid files data")
+        try:
+            paths = [str(file["filename"]) for file in files]
+            paths.extend(
+                str(file["previous_filename"])
+                for file in files
+                if "previous_filename" in file
+            )
+        except (KeyError, TypeError) as error:
+            raise SyncError(f"{name}: comparison returned invalid file data") from error
+        return str(result.get("status", "")), paths
+
+    def file_entry(self, name: str, path: str, branch: str) -> tuple[str, str] | None:
+        """Walk Git trees without following symlinks or truncated recursive lists."""
+        validate_branch_name(branch)
+        tree_ref = branch
+        parts = path.split("/")
+        for index, part in enumerate(parts):
+            result = self._request(
+                "GET", f"{self._repo_path(name)}/git/trees/{quote(tree_ref, safe='')}"
+            )
+            if result.get("truncated") or not isinstance(result.get("tree"), list):
+                raise SyncError(f"{name}: incomplete Git tree")
+            entries = [entry for entry in result["tree"] if entry.get("path") == part]
+            if not entries:
+                return None
+            if len(entries) != 1:
+                raise SyncError(f"{name}:{path}: ambiguous Git tree entry")
+            entry = entries[0]
+            mode, sha = str(entry.get("mode", "")), str(entry.get("sha", ""))
+            if not re.fullmatch(r"[0-9a-f]{40}", sha):
+                raise SyncError(f"{name}:{path}: invalid Git object SHA")
+            if index == len(parts) - 1:
+                return mode, sha
+            if mode != "040000" or entry.get("type") != "tree":
+                raise SyncError(f"{name}:{path}: parent is not a Git tree")
+            tree_ref = sha
+        return None
+
+    def file_content(self, name: str, path: str, branch: str) -> tuple[str, str] | None:
+        entry = self.file_entry(name, path, branch)
+        if entry is None:
             return None
-        if (
-            not isinstance(result, dict)
-            or result.get("type") != "file"
-            or result.get("encoding") != "base64"
-        ):
-            raise SyncError(f"{name}:{path} is not a regular base64-encoded file")
+        mode, sha = entry
+        if mode != "100644":
+            raise SyncError(f"{name}:{path} is not a regular tracked 100644 file")
+        result = self._request("GET", f"{self._repo_path(name)}/git/blobs/{sha}")
+        if not isinstance(result, dict) or result.get("encoding") != "base64":
+            raise SyncError(f"{name}:{path} is not a base64-encoded blob")
         try:
             encoded = "".join(str(result["content"]).split())
             content = base64.b64decode(encoded, validate=True).decode("utf-8")
         except (KeyError, ValueError, UnicodeDecodeError) as error:
             raise SyncError(f"{name}:{path} has invalid content data") from error
-        return content, str(result["sha"])
+        if git_blob_sha(content) != sha:
+            raise SyncError(f"{name}:{path} blob identity mismatch")
+        return content, sha
 
     def put_file(
         self,
@@ -381,6 +446,27 @@ def pull_request_body() -> str:
     )
 
 
+def git_blob_sha(content: str) -> str:
+    data = content.encode("utf-8")
+    return hashlib.sha1(b"blob " + str(len(data)).encode("ascii") + b"\0" + data).hexdigest()
+
+
+def automation_branch_is_safe(
+    service: RepositoryService, name: str, default_branch: str, canonical: str,
+    *, caller_current: bool = False,
+) -> bool:
+    comparison, paths = service.compare_branch(name, default_branch, AUTOMATION_BRANCH)
+    valid_diff = (
+        comparison == "identical" and not paths if caller_current
+        else comparison == "ahead" and set(paths) == {CALLER_PATH}
+    )
+    if not valid_diff:
+        return False
+    return service.file_entry(name, CALLER_PATH, AUTOMATION_BRANCH) == (
+        "100644", git_blob_sha(canonical)
+    )
+
+
 def sync_repository(
     service: RepositoryService,
     config: RepositoryConfig,
@@ -413,14 +499,6 @@ def sync_repository(
     default_file = service.file_content(config.name, CALLER_PATH, default_branch)
     default_content = default_file[0] if default_file else None
     classification = classify(default_content, canonical)
-    if classification == "synchronized":
-        return SyncResult(
-            config.name,
-            "synchronized",
-            default_branch=default_branch,
-            classification=classification,
-            message="default branch already matches the canonical caller",
-        )
     if classification == "unmanaged" and not config.adopt_existing:
         return SyncResult(
             config.name,
@@ -430,21 +508,39 @@ def sync_repository(
             message="existing caller is unmanaged and adoption is not permitted",
         )
 
+    branch_sha = service.branch_sha(config.name, AUTOMATION_BRANCH)
+    caller_current = classification == "synchronized"
+    unsafe_branch = branch_sha is not None and not automation_branch_is_safe(
+        service, config.name, default_branch, canonical, caller_current=caller_current
+    )
     if dry_run:
+        needs_sync = not caller_current or unsafe_branch
         return SyncResult(
             config.name,
-            "would_sync",
+            "would_sync" if needs_sync else "synchronized",
             default_branch=default_branch,
             classification=classification,
-            changed=True,
-            message=f"would synchronize {classification} caller through a pull request",
+            changed=needs_sync,
+            message=("would repair caller or untrusted automation branch" if needs_sync
+                     else "default caller and existing automation branch are current"),
         )
 
-    branch_sha = service.branch_sha(config.name, AUTOMATION_BRANCH)
+    default_sha = service.branch_sha(config.name, default_branch)
+    if default_sha is None:
+        raise SyncError(f"{config.name}: default branch ref is missing")
+    if unsafe_branch:
+        service.reset_branch(config.name, AUTOMATION_BRANCH, default_sha)
+    if caller_current:
+        if branch_sha is not None and not automation_branch_is_safe(
+            service, config.name, default_branch, canonical, caller_current=True
+        ):
+            raise SyncError(f"{config.name}: automation branch remains untrusted after reset")
+        return SyncResult(
+            config.name, "synchronized", default_branch=default_branch,
+            classification=classification, changed=unsafe_branch,
+            message="default caller is current; existing automation branch audited",
+        )
     if branch_sha is None:
-        default_sha = service.branch_sha(config.name, default_branch)
-        if default_sha is None:
-            raise SyncError(f"{config.name}: default branch ref is missing")
         service.create_branch(config.name, AUTOMATION_BRANCH, default_sha)
 
     branch_file = service.file_content(config.name, CALLER_PATH, AUTOMATION_BRANCH)
@@ -458,6 +554,11 @@ def sync_repository(
             AUTOMATION_BRANCH,
             canonical,
             branch_file_sha,
+        )
+
+    if not automation_branch_is_safe(service, config.name, default_branch, canonical):
+        raise SyncError(
+            f"{config.name}: refusing automation pull request with unexpected diff"
         )
 
     body = pull_request_body()

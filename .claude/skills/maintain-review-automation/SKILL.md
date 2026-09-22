@@ -52,6 +52,9 @@ templates, formatter, and tests whenever the shared contract is affected.
   reusable-workflow call. Do not duplicate policy inputs.
 - Distribute callers through the manifest and idempotent automation pull
   requests; never write a consumer default branch.
+- Treat existing automation branches as untrusted: require ancestry from the
+  current default branch and an exact managed-caller-only diff, resetting them
+  otherwise, and verify the complete diff before applying PR metadata.
 - Keep caller audits and synchronization operator-run. Do not add an unattended
   cross-repository credential workflow.
 - Keep same-repository template copying on GitHub-hosted runners, restrict it to
@@ -65,7 +68,8 @@ templates, formatter, and tests whenever the shared contract is affected.
 - Use `actions/checkout@v6`.
 - Pin cross-repository executable actions to reviewed full commit SHAs.
   Canary the exact candidate via a direct action invocation before promoting
-  the production pin; then validate the updated central routing.
+  the production pin; then validate the updated central routing. Advance the
+  stable workflow ref to that validated commit and test it before distribution.
 - For pull-request checks, reject non-`100644` index entries and compare Git
   blob IDs without dereferencing or printing PR-controlled working-tree paths.
 - Set `persist-credentials: false` on read-only checkouts that do not need to
@@ -109,3 +113,10 @@ and copied-example safety before committing.
 The action infers omitted mode from the event; the reusable workflow deliberately
 passes the gate-resolved mode explicitly. Keep the shared fixture synchronized
 with the pinned action manifest, including the absence of a mode default.
+
+Treat a GitHub comparison 404 (including unrelated history) as an untrusted
+automation branch requiring reset; other API failures remain visible errors.
+
+Audit existing automation branches even when the default caller is current.
+Require the caller to be a regular 100644 Git blob with canonical identity;
+never trust a symlink-dereferencing Contents API response for caller equality.

@@ -108,7 +108,12 @@ added deliberately.
 branch through the GitHub API, classifies the caller, and creates or updates the
 deterministic `automation/sync-codex-review` branch and one pull request. It
 never writes the default branch. Existing automation PRs are reused, and an
-already-current branch produces no commit or metadata update.
+already-current branch produces no commit or metadata update. Before applying
+trusted PR metadata, the synchronizer requires the automation branch to descend
+from the current default branch and to change exactly the managed caller path.
+A comparison 404, including unrelated history, also fails this check; other
+API errors abort visibly. It resets a branch that fails that check and verifies the complete diff again
+after writing the caller.
 
 Run it from a trusted administrator workstation or the existing maintenance
 server using an explicitly authenticated `gh` session. It is not invoked by
@@ -162,14 +167,23 @@ repository currently has a validated `stable` branch. The release sequence is:
    `auto` and `mention` inputs and their corresponding event contexts. Do not
    route this canary through the production reusable workflow, which still
    references the old action. Verify checkout, sandbox, and review delivery.
-3. Create and protect `stable` branches in both central repositories.
-4. Through a reviewed PR, advance the reusable workflow's action pin to exactly
-   the SHA exercised by the direct-action canary and synchronize its contract
-   fixture. Validate automatic and mention routing through the updated central
-   workflow in the controlled repository before distributing the caller.
-5. Change the canonical caller to call the validated reusable workflow at
-   `@stable`.
-6. Copy the updated caller manually or run the local synchronizer explicitly.
+3. Through a reviewed PR, advance the reusable workflow's action pin on `main`
+   to exactly the SHA exercised by the direct-action canary and synchronize its
+   contract fixture. Record the resulting central workflow commit and validate
+   its automatic and mention routing in the controlled repository.
+4. Only after that validation, create or advance `mobilint/.github`'s protected
+   `stable` branch to the recorded central workflow commit. Create or advance
+   the action repository's protected `stable` branch to the tested action
+   revision as well; the reusable workflow continues to use the immutable SHA.
+   Follow the authorized branch-protection/release process for these updates.
+5. Verify that the distributed `mobilint/.github` `stable` ref resolves to the
+   validated central commit, and exercise automatic and mention routing through
+   `codex-pr-review.yml@stable` in the controlled repository. If either check
+   fails, do not distribute the caller; correct the release and repeat validation.
+6. Change the canonical caller to reference that validated `@stable` workflow,
+   keep the generated example identical, and copy the caller or explicitly run
+   the local synchronizer. For later releases, repeat the candidate canary,
+   reviewed pin promotion, stable-ref advancement, and stable-routing validation.
 
 Organization administrators must create branch protection for both `stable`
 branches, require the repositories' CI checks and reviews, restrict direct
@@ -192,3 +206,10 @@ the managed caller has merged into the consumer's default branch.
 The pinned action infers omitted `mode` from `event_name`. The central workflow
 already resolves `auto` and `mention` at its gate and forwards that explicit
 mode; callers need no new input. The shared action fixture has no `mode` default.
+
+Caller reads traverse non-recursive Git trees and read verified regular blobs,
+without following symlinks. Branch reuse requires both the expected diff and
+the canonical caller blob identity. Even when the default caller is current,
+check/dry-run reports an untrusted existing branch as drift; apply resets it
+to the default branch and verifies it before reporting synchronization. A
+regular already-current branch remains idempotent and produces no write.
