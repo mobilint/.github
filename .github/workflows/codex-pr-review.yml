@@ -39,7 +39,7 @@ on:
         type: boolean
         default: false
       allow_unsafe_no_sandbox_fallback:
-        description: Allow trusted self-hosted runners to retry Codex without sandbox when sandbox startup is unsupported
+        description: Deprecated compatibility input; ignored because sandbox fallback is always disabled
         required: false
         type: boolean
         default: false
@@ -695,7 +695,7 @@ jobs:
           max_files: ${{ inputs.max_files }}
           max_diff_chars: ${{ inputs.max_diff_chars }}
           sandbox_mode: read-only
-          allow_unsafe_no_sandbox_fallback: ${{ inputs.allow_unsafe_no_sandbox_fallback }}
+          allow_unsafe_no_sandbox_fallback: false
 
   post-failure:
     needs:
