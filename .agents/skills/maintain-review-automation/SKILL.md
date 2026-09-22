@@ -35,6 +35,8 @@ templates, formatter, and tests whenever the shared contract is affected.
 
 - Keep caller permissions minimal.
 - Keep trusted-author and trusted-commenter gates ahead of self-hosted work.
+- Require an explicit `write`, `maintain`, or `admin` effective permission in
+  permission fallbacks; API success alone must remain untrusted.
 - Keep `allow_unsafe_no_sandbox_fallback: false`; fail closed on sandbox
   startup failure.
 - Use temporary 👀 acknowledgement with cancellation-safe cleanup,

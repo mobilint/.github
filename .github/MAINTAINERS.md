@@ -26,6 +26,10 @@ task; no GitHub App or scheduled cross-repository writer is used.
 The hosted cleanup job removes the temporary eyes reaction when the self-hosted
 review fails or is canceled before its action can perform cleanup.
 
+When event association metadata is inconclusive, the permission fallback trusts
+only an explicit `write`, `maintain`, or `admin` effective repository permission;
+API success by itself and `read` or `none` permissions remain untrusted.
+
 ## Canonical managed caller
 
 `workflow-templates/code-review.yml` is the only hand-edited source. It is also
