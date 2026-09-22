@@ -129,6 +129,11 @@ class ManagedCallerTests(unittest.TestCase):
         )
         self.assertNotIn("uses: mobilint/codex-review-action@main", text)
 
+    def test_mode_contract_preserves_explicit_gate_routing(self) -> None:
+        contract = json.loads((ROOT / "config" / "codex-review-action-contract.json").read_text())
+        self.assertEqual(contract["action_inputs"]["mode"], {"required": False})
+        self.assertIn("mode: ${{ needs.gate.outputs.mode }}", REUSABLE.read_text())
+
     def test_reusable_workflow_preserves_review_boundaries(self) -> None:
         text = REUSABLE.read_text(encoding="utf-8")
         for fragment in (

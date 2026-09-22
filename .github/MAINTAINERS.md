@@ -8,7 +8,7 @@ repository root README remains a user-facing overview.
 ```text
 consumer .github/workflows/code-review.yml
   -> mobilint/.github/.github/workflows/codex-pr-review.yml@main
-  -> mobilint/codex-review-action@bdaf8ad5e67ed8b51253ff34793c668a66d67924
+  -> mobilint/codex-review-action@2454440c864b485d23ae3c3a4078f0adb445c497
   -> self-hosted runner group codex, label codex-reviewer
 ```
 
@@ -173,3 +173,7 @@ settings by itself.
 
 Comment/review events that require default-branch workflows will not run until
 the managed caller has merged into the consumer's default branch.
+
+The pinned action infers omitted `mode` from `event_name`. The central workflow
+already resolves `auto` and `mention` at its gate and forwards that explicit
+mode; callers need no new input. The shared action fixture has no `mode` default.

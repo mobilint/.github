@@ -102,3 +102,7 @@ git diff --check
 Run the `codex-review-action` unit and shell checks when changing the
 cross-repository action contract. Inspect the final diff for secure defaults
 and copied-example safety before committing.
+
+The action infers omitted mode from the event; the reusable workflow deliberately
+passes the gate-resolved mode explicitly. Keep the shared fixture synchronized
+with the pinned action manifest, including the absence of a mode default.

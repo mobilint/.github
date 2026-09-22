@@ -38,3 +38,7 @@ no unattended cross-repository credential workflow is installed.
 Maintainers should use the
 [automation operations guide](.github/MAINTAINERS.md) for architecture, enrollment,
 manual synchronization, validation, release, and rollback procedures.
+
+The reusable workflow pins the review action to an immutable commit and forwards
+the mode selected by its event gate. Direct action users may omit `mode` to infer
+`auto` for pull requests or `mention` for comment/review events.

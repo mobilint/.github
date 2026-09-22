@@ -168,3 +168,7 @@ When the action contract changes, also run the `codex-review-action` tests.
 - Do not push generated badge content to `main`.
 - Do not bypass validation hooks or weaken a security control to make a check
   pass.
+
+The action infers omitted mode from the event; the reusable workflow deliberately
+passes the gate-resolved mode explicitly. Keep the shared fixture synchronized
+with the pinned action manifest, including the absence of a mode default.
