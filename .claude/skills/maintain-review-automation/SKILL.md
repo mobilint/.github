@@ -40,8 +40,8 @@ templates, formatter, and tests whenever the shared contract is affected.
 - Keep `allow_unsafe_no_sandbox_fallback: false` hard-coded in the reusable
   workflow; accept but ignore the deprecated compatibility input, and fail
   closed on sandbox startup failure.
-- Use temporary 👀 acknowledgement, reaction-only 👍 for clean reviews, and
-  visible error notices.
+- Use temporary 👀 acknowledgement with cancellation-safe cleanup,
+  reaction-only 👍 for clean reviews, and visible error notices.
 - Ignore quoted and code-formatted mentions with linear-time parsing.
 - Validate GitHub identifiers before API path interpolation.
 - Keep finding and payload limits explicit.
