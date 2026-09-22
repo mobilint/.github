@@ -64,10 +64,13 @@ Normal callers pass no `with:` values. Current central defaults include:
 - read-only sandbox with unsafe fallback disabled.
 
 The existing `workflow_call` inputs remain supported for backward compatibility
-while repositories migrate. No Actions-variable override layer is enabled yet;
-repository-specific `CODEX_REVIEW_*` variables are reserved for a future,
-strictly parsed profile system. Security-sensitive trust, permissions, runner,
-ownership, and sandbox settings remain central.
+while repositories migrate. `allow_unsafe_no_sandbox_fallback` is deprecated
+and ignored, including when a legacy caller passes `true`. Sandbox mode and unsafe
+fallback behavior are not caller-configurable: the reusable workflow hard-codes
+a read-only sandbox and fails closed when it cannot start. No Actions-variable
+override layer is enabled yet; repository-specific `CODEX_REVIEW_*` variables
+are reserved for a future, strictly parsed profile system. Security-sensitive
+trust, permissions, runner, ownership, and sandbox settings remain central.
 
 ## Enrolling and disabling repositories
 
