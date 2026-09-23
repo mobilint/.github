@@ -39,7 +39,7 @@ on:
         type: boolean
         default: false
       allow_unsafe_no_sandbox_fallback:
-        description: Allow trusted self-hosted runners to retry Codex without sandbox when sandbox startup is unsupported
+        description: Deprecated compatibility input; ignored because sandbox fallback is always disabled
         required: false
         type: boolean
         default: false
@@ -308,6 +308,25 @@ jobs:
           commenter_trusted=true
           pr_allowed=false
 
+          has_trusted_repository_permission() {
+            local login="$1"
+            local permission
+
+            permission="$(
+              gh api "/repos/${REPO}/collaborators/${login}/permission" \
+                --jq '.permission // empty' 2>/dev/null
+            )" || return 1
+
+            case "${permission}" in
+              admin|maintain|write)
+                return 0
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+          }
+
           case "${PR_AUTHOR_ASSOCIATION}" in
             OWNER|MEMBER|COLLABORATOR)
               pr_author_trusted=true
@@ -315,15 +334,10 @@ jobs:
           esac
 
           # Some GitHub event payloads surface author_association inconsistently.
-          # Fall back to checking whether the PR author actually has repository access.
-          if [[ "${pr_author_trusted}" != "true" && -n "${PR_AUTHOR}" ]]; then
-            set +e
-            gh api "/repos/${REPO}/collaborators/${PR_AUTHOR}/permission" >/dev/null 2>&1
-            collaborator_check_exit=$?
-            set -e
-            if [[ ${collaborator_check_exit} -eq 0 ]]; then
-              pr_author_trusted=true
-            fi
+          # Fall back to an explicit write-level repository permission.
+          if [[ "${pr_author_trusted}" != "true" && -n "${PR_AUTHOR}" ]] &&
+            has_trusted_repository_permission "${PR_AUTHOR}"; then
+            pr_author_trusted=true
           fi
 
           if [[ "${GITHUB_EVENT_NAME}" != "pull_request" ]]; then
@@ -334,14 +348,9 @@ jobs:
                 ;;
             esac
 
-            if [[ "${commenter_trusted}" != "true" && -n "${COMMENTER}" ]]; then
-              set +e
-              gh api "/repos/${REPO}/collaborators/${COMMENTER}/permission" >/dev/null 2>&1
-              commenter_check_exit=$?
-              set -e
-              if [[ ${commenter_check_exit} -eq 0 ]]; then
-                commenter_trusted=true
-              fi
+            if [[ "${commenter_trusted}" != "true" && -n "${COMMENTER}" ]] &&
+              has_trusted_repository_permission "${COMMENTER}"; then
+              commenter_trusted=true
             fi
           fi
 
@@ -671,7 +680,9 @@ jobs:
 
     steps:
       - name: Run Codex review
-        uses: mobilint/codex-review-action@main
+        # Pin third-party executable code to a reviewed commit. Update this SHA
+        # deliberately alongside the action contract and its test suite.
+        uses: mobilint/codex-review-action@2454440c864b485d23ae3c3a4078f0adb445c497
         with:
           repo: ${{ needs.gate.outputs.repo }}
           pr_number: ${{ needs.gate.outputs.pr_number }}
@@ -684,18 +695,21 @@ jobs:
           max_files: ${{ inputs.max_files }}
           max_diff_chars: ${{ inputs.max_diff_chars }}
           sandbox_mode: read-only
-          allow_unsafe_no_sandbox_fallback: ${{ inputs.allow_unsafe_no_sandbox_fallback }}
+          allow_unsafe_no_sandbox_fallback: false
 
   post-failure:
     needs:
       - gate
       - run-review
-    if: always() && needs.gate.outputs.run_local == 'true' && needs.run-review.result == 'failure'
+    if: >
+      always() &&
+      needs.gate.outputs.run_local == 'true' &&
+      (needs.run-review.result == 'failure' || needs.run-review.result == 'cancelled')
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
-      - name: Post failure note
+      - name: Remove temporary eyes reaction
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -740,6 +754,16 @@ jobs:
           elif [[ -n "${REACTION_ID}" && "${REACTION_ID}" =~ ^[1-9][0-9]*$ ]]; then
             echo "Skipping eyes reaction cleanup: invalid target identifier." >&2
           fi
+
+      - name: Post failure note
+        if: needs.run-review.result == 'failure'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ needs.gate.outputs.repo }}
+          PR_NUMBER: ${{ needs.gate.outputs.pr_number }}
+        run: |
+          set -euo pipefail
 
           if ! [[ "${PR_NUMBER}" =~ ^[1-9][0-9]*$ ]]; then
             echo "Cannot post failure note: invalid pull request number." >&2

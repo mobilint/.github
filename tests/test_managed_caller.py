@@ -121,6 +121,19 @@ class ManagedCallerTests(unittest.TestCase):
         }
         self.assertEqual(passed, set(contract["action_inputs"]))
 
+    def test_reusable_action_is_pinned_to_an_immutable_commit(self) -> None:
+        text = REUSABLE.read_text(encoding="utf-8")
+        self.assertRegex(
+            text,
+            r"(?m)uses: mobilint/codex-review-action@[0-9a-f]{40}$",
+        )
+        self.assertNotIn("uses: mobilint/codex-review-action@main", text)
+
+    def test_mode_contract_preserves_explicit_gate_routing(self) -> None:
+        contract = json.loads((ROOT / "config" / "codex-review-action-contract.json").read_text())
+        self.assertEqual(contract["action_inputs"]["mode"], {"required": False})
+        self.assertIn("mode: ${{ needs.gate.outputs.mode }}", REUSABLE.read_text())
+
     def test_reusable_workflow_preserves_review_boundaries(self) -> None:
         text = REUSABLE.read_text(encoding="utf-8")
         for fragment in (
@@ -130,12 +143,35 @@ class ManagedCallerTests(unittest.TestCase):
             "group: codex",
             "labels: codex-reviewer",
             "sandbox_mode: read-only",
-            "allow_unsafe_no_sandbox_fallback:",
+            "allow_unsafe_no_sandbox_fallback: false",
             "needs.gate.outputs.run_local == 'true'",
             "Codex review did not complete successfully.",
         ):
             self.assertIn(fragment, text)
+        self.assertRegex(
+            text,
+            r"(?m)^      allow_unsafe_no_sandbox_fallback:$",
+        )
+        self.assertNotIn("inputs.allow_unsafe_no_sandbox_fallback", text)
         self.assertNotIn("pull_request_target", text)
+
+    def test_temporary_reaction_cleanup_covers_cancelled_reviews(self) -> None:
+        text = REUSABLE.read_text(encoding="utf-8")
+        cleanup = text[text.index("  post-failure:") :]
+        self.assertIn("needs.run-review.result == 'cancelled'", cleanup)
+        self.assertIn("- name: Remove temporary eyes reaction", cleanup)
+        self.assertIn("if: needs.run-review.result == 'failure'", cleanup)
+
+    def test_permission_fallback_requires_an_explicit_trusted_level(self) -> None:
+        text = REUSABLE.read_text(encoding="utf-8")
+        self.assertIn("has_trusted_repository_permission", text)
+        self.assertIn("--jq '.permission // empty'", text)
+        self.assertIn("admin|maintain|write)", text)
+        self.assertNotIn(
+            'gh api "/repos/${REPO}/collaborators/${COMMENTER}/permission" '
+            ">/dev/null",
+            text,
+        )
 
     def test_unattended_app_synchronizer_is_not_installed(self) -> None:
         self.assertFalse(APP_SYNCHRONIZER.exists())

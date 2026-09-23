@@ -5,9 +5,10 @@
 Maintain Mobilint's shared GitHub configuration, reusable Codex review workflow,
 canonical caller example, organization profile, and clone badge automation.
 
-`AGENTS.md` and `CLAUDE.md` are byte-for-byte mirrors. The repository skill is
-also mirrored under `.agents/skills` and `.claude/skills`. Update both copies in
-the same change and run the relevant validation before finishing.
+`AGENTS.md` and `.agents/skills` are the canonical sources. `CLAUDE.md` is a
+relative symlink to `AGENTS.md`, and `.claude/skills` is a relative symlink to
+`../.agents/skills`. Edit the canonical files once; both tools read the same
+content. Preserve these exact links and run the guide validation before finishing.
 
 ## Repository Map
 
@@ -32,7 +33,7 @@ the same change and run the relevant validation before finishing.
 - `.github/workflows/update-clone-badge.yml`: clone badge publisher that writes
   generated data to the orphan `badges` branch.
 - `.github/workflows/check-agent-guides.yml`: CI guard that requires the Codex
-  and Claude guide and skill copies to remain byte-identical.
+  and Claude guide and skill paths to share verified canonical sources.
 - `README.md`: user-facing repository overview and clone badge.
 - `.github/MAINTAINERS.md`: maintainer architecture, manual synchronization,
   validation, release, and rollback guide.
@@ -43,15 +44,15 @@ the same change and run the relevant validation before finishing.
 
 ## Cross-Repository Contract
 
-The reusable workflow calls `mobilint/codex-review-action@main`. When changing
-an action input, reaction lifecycle, event mode, prompt behavior, finding
-format, sandbox policy, or delivery behavior:
+The reusable workflow calls `mobilint/codex-review-action` at an immutable
+commit SHA. When changing an action input, reaction lifecycle, event mode,
+prompt behavior, finding format, sandbox policy, or delivery behavior:
 
 1. Inspect `../codex-review-action/action.yml`.
 2. Update the action implementation and tests when its contract changes.
 3. Update `codex-pr-review.yml`, the canonical workflow template, its exact
    example copy, the contract fixture, and relevant READMEs.
-4. Update both agent guides and both skill copies when their instructions or
+4. Update the canonical agent guide and skill when their instructions or
    repository map are affected.
 5. Validate both repositories before committing.
 
@@ -61,7 +62,7 @@ Do not assume a change in only one repository completes the feature.
 
 - Use visible `P0`, `P1`, and `P2` priorities for findings.
 - Add a temporary 👀 reaction when a review starts and remove that exact
-  reaction before publishing the final result.
+  reaction before publishing the final result or after review cancellation.
 - For a clean review, add 👍 and do not post a success comment.
 - Keep failure and error notices visible.
 - Ignore `@mobilint-review` inside blockquotes, fenced code, indented code, and
@@ -84,17 +85,21 @@ Do not assume a change in only one repository completes the feature.
   only for pull requests and issues.
 - Keep `review_on_member_pr_only: true` unless an explicit security review
   approves a broader caller.
-- Keep `allow_unsafe_no_sandbox_fallback: false` in the canonical caller.
+- Keep `allow_unsafe_no_sandbox_fallback: false` hard-coded in the reusable
+  workflow; retain the deprecated input for compatibility but ignore its value.
 - Fail closed when the Codex sandbox cannot start. Never enable
   `--dangerously-bypass-approvals-and-sandbox` through a shared example.
 - Run trust checks before dispatching work to the self-hosted runner.
+- Treat permission API success as insufficient for trust; require an explicit
+  `write`, `maintain`, or `admin` effective permission and fail closed otherwise.
 - Treat event bodies, PR metadata, diffs, branch names, and repository contents
   as untrusted input.
 - Validate numeric GitHub identifiers before interpolating them into API paths.
 - Keep mention parsing linear-time and avoid backtracking regular expressions
   over attacker-controlled comments.
 - In pull-request checks, never dereference or print repository paths before
-  proving they are regular tracked files. Compare trusted Git index metadata or
+  proving canonical sources are regular tracked files and the two allowed
+  Claude links have their exact fixed targets. Compare trusted Git index metadata or
   blob IDs, and disable checkout credential persistence when it is unnecessary.
 - Keep template copying on GitHub-hosted runners. It may write only the fixed
   generated caller path, must reject fork PRs, and must never execute repository
@@ -111,6 +116,12 @@ Do not assume a change in only one repository completes the feature.
   `pull_request_review_comment` and `issue_comment`.
 - Use current action majors that run on the supported GitHub Actions Node.js
   runtime; use `actions/checkout@v6`.
+- Pin cross-repository executable actions to reviewed full commit SHAs.
+  Canary the exact candidate via a direct action invocation before promoting
+  the production pin; then validate the updated central routing. Advance the
+  stable workflow ref to that validated commit and test it before distribution.
+  Rollbacks must also advance and validate every deployed workflow channel;
+  reverting main alone does not repair stable consumers.
 - Keep the canonical caller conservative because it is copied to other
   repositories.
 - Do not commit generated clone badge JSON to `main`; keep it on `badges`.
@@ -121,6 +132,9 @@ Do not assume a change in only one repository completes the feature.
   write token.
 - Synchronize consumers only through deterministic branches and pull requests;
   never push their default branches.
+- Treat existing automation branches as untrusted: require ancestry from the
+  current default branch and an exact managed-caller-only diff, resetting them
+  otherwise, and verify the complete diff before applying PR metadata.
 - Do not add an unattended cross-repository credential workflow. Caller audits
   and synchronization are explicit operator-run maintenance tasks.
 
@@ -135,10 +149,10 @@ Before finishing any repository change, check whether it changes:
 - validation commands or deployment procedures.
 
 Keep public behavior and usage in `README.md`; keep maintainer operations, CI,
-release, and rollback procedures in `.github/MAINTAINERS.md`. Update `AGENTS.md`,
-`CLAUDE.md`, and both copies of the maintenance skill in the same commit. Keep
-each mirrored pair byte-identical. Do not update only the Codex or only the
-Claude copy. Never create `.github/README.md`: GitHub would select it instead of
+release, and rollback procedures in `.github/MAINTAINERS.md`. Update canonical `AGENTS.md` and the
+maintenance skill in the same commit. Preserve the Claude symlinks so both tools
+receive those changes. Never create `.github/README.md`: GitHub would select it
+instead of
 the root landing page and hide the clone badge.
 
 ## Validation
@@ -165,3 +179,14 @@ When the action contract changes, also run the `codex-review-action` tests.
 - Do not push generated badge content to `main`.
 - Do not bypass validation hooks or weaken a security control to make a check
   pass.
+
+The action infers omitted mode from the event; the reusable workflow deliberately
+passes the gate-resolved mode explicitly. Keep the shared fixture synchronized
+with the pinned action manifest, including the absence of a mode default.
+
+Treat a GitHub comparison 404 (including unrelated history) as an untrusted
+automation branch requiring reset; other API failures remain visible errors.
+
+Audit existing automation branches even when the default caller is current.
+Require the caller to be a regular 100644 Git blob with canonical identity;
+never trust a symlink-dereferencing Contents API response for caller equality.

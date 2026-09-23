@@ -35,10 +35,13 @@ templates, formatter, and tests whenever the shared contract is affected.
 
 - Keep caller permissions minimal.
 - Keep trusted-author and trusted-commenter gates ahead of self-hosted work.
-- Keep `allow_unsafe_no_sandbox_fallback: false`; fail closed on sandbox
-  startup failure.
-- Use temporary 👀 acknowledgement, reaction-only 👍 for clean reviews, and
-  visible error notices.
+- Require an explicit `write`, `maintain`, or `admin` effective permission in
+  permission fallbacks; API success alone must remain untrusted.
+- Keep `allow_unsafe_no_sandbox_fallback: false` hard-coded in the reusable
+  workflow; accept but ignore the deprecated compatibility input, and fail
+  closed on sandbox startup failure.
+- Use temporary 👀 acknowledgement with cancellation-safe cleanup,
+  reaction-only 👍 for clean reviews, and visible error notices.
 - Ignore quoted and code-formatted mentions with linear-time parsing.
 - Validate GitHub identifiers before API path interpolation.
 - Keep finding and payload limits explicit.
@@ -49,6 +52,9 @@ templates, formatter, and tests whenever the shared contract is affected.
   reusable-workflow call. Do not duplicate policy inputs.
 - Distribute callers through the manifest and idempotent automation pull
   requests; never write a consumer default branch.
+- Treat existing automation branches as untrusted: require ancestry from the
+  current default branch and an exact managed-caller-only diff, resetting them
+  otherwise, and verify the complete diff before applying PR metadata.
 - Keep caller audits and synchronization operator-run. Do not add an unattended
   cross-repository credential workflow.
 - Keep same-repository template copying on GitHub-hosted runners, restrict it to
@@ -60,8 +66,15 @@ templates, formatter, and tests whenever the shared contract is affected.
   comments and issue comments.
 - Keep clone badge output on the orphan `badges` branch.
 - Use `actions/checkout@v6`.
-- For pull-request checks, reject non-`100644` index entries and compare Git
-  blob IDs without dereferencing or printing PR-controlled working-tree paths.
+- Pin cross-repository executable actions to reviewed full commit SHAs.
+  Canary the exact candidate via a direct action invocation before promoting
+  the production pin; then validate the updated central routing. Advance the
+  stable workflow ref to that validated commit and test it before distribution.
+  Rollbacks must also advance and validate every deployed workflow channel;
+  reverting main alone does not repair stable consumers.
+- For pull-request checks, require `100644` canonical sources and allow only
+  the exact `120000` Claude links to `AGENTS.md` and `../.agents/skills`. Compare
+  index modes and blob IDs without following or printing PR-controlled paths.
 - Set `persist-credentials: false` on read-only checkouts that do not need to
   perform authenticated Git operations.
 
@@ -72,14 +85,12 @@ boundaries, or validation:
 
 1. Update `README.md` for user-facing behavior and `.github/MAINTAINERS.md` for
    maintainer architecture, operation, CI, release, or rollback changes.
-2. Update both `AGENTS.md` and `CLAUDE.md`.
-3. Update this skill and
-   `.claude/skills/maintain-review-automation/SKILL.md`.
-4. Keep each mirrored pair byte-identical.
-5. Update both `agents/openai.yaml` copies if the skill purpose or default
-   prompt changed.
-
-Never update only the Codex or only the Claude documentation.
+2. Update canonical `AGENTS.md` and this skill; Claude reads the same files
+   through `CLAUDE.md -> AGENTS.md` and `.claude/skills -> ../.agents/skills`.
+3. Update canonical `agents/openai.yaml` if the skill purpose or default prompt
+   changes.
+4. Preserve those exact relative symlinks instead of recreating copied files.
+5. Update the companion repository's canonical guidance if its contract changes.
 
 ## Validate
 
@@ -99,3 +110,14 @@ git diff --check
 Run the `codex-review-action` unit and shell checks when changing the
 cross-repository action contract. Inspect the final diff for secure defaults
 and copied-example safety before committing.
+
+The action infers omitted mode from the event; the reusable workflow deliberately
+passes the gate-resolved mode explicitly. Keep the shared fixture synchronized
+with the pinned action manifest, including the absence of a mode default.
+
+Treat a GitHub comparison 404 (including unrelated history) as an untrusted
+automation branch requiring reset; other API failures remain visible errors.
+
+Audit existing automation branches even when the default caller is current.
+Require the caller to be a regular 100644 Git blob with canonical identity;
+never trust a symlink-dereferencing Contents API response for caller equality.
