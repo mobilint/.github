@@ -87,9 +87,10 @@ class ManagedCallerTests(unittest.TestCase):
         self.assertNotIn("actions: write", text)
         self.assertNotIn("\n    with:", text)
         self.assertNotIn("secrets: inherit", text)
-        self.assertIn(
-            "uses: mobilint/.github/.github/workflows/codex-pr-review.yml@main",
+        self.assertRegex(
             text,
+            r"(?m)^    uses: mobilint/\.github/\.github/workflows/"
+            r"codex-pr-review\.yml@[0-9a-f]{40}$",
         )
 
     def test_reusable_defaults_remain_central(self) -> None:

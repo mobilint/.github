@@ -68,10 +68,10 @@ templates, formatter, and tests whenever the shared contract is affected.
 - Use `actions/checkout@v6`.
 - Pin cross-repository executable actions to reviewed full commit SHAs.
   Canary the exact candidate via a direct action invocation before promoting
-  the production pin; then validate the updated central routing. Advance the
-  stable workflow ref to that validated commit and test it before distribution.
-  Rollbacks must also advance and validate every deployed workflow channel;
-  reverting main alone does not repair stable consumers.
+  the production pin; then validate the updated central routing. Distribute the
+  validated central workflow by full commit SHA through reviewed caller PRs.
+  Rollbacks also require caller pin updates; reverting main alone does not
+  repair SHA-pinned consumers.
 - For pull-request checks, require `100644` canonical sources and allow only
   the exact `120000` Claude links to `AGENTS.md` and `../.agents/skills`. Compare
   index modes and blob IDs without following or printing PR-controlled paths.
@@ -133,3 +133,8 @@ Keep the pool probe restricted to this repository and its default branch before
 runner allocation, and serialize probe batches with workflow concurrency.
 Describe deployed action behavior separately from candidate changes awaiting
 approval, a direct-action canary, and a reviewed pin promotion.
+
+Pin managed reusable-workflow calls to a reviewed full commit SHA from
+`mobilint/.github`, verifying that the workflow exists at that revision. Keep
+the central template, generated example, and consumer callers synchronized.
+Check SHA provenance through GitHub; a 40-hex syntax test alone cannot prove it.

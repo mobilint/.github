@@ -61,3 +61,7 @@ GitHub assigns eligible queued jobs to any idle matching runner. Two registered,
 online runners can execute two reviews at once; additional eligible jobs wait
 for capacity. This does not bypass the trust gate or per-PR concurrency policy.
 See the maintainer guide for setup and the manual pool check.
+
+Managed callers pin the central review workflow to a reviewed full commit SHA.
+Workflow updates and rollbacks reach consumers through reviewed caller pin
+updates; changing the central default branch alone does not update those callers.
