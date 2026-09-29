@@ -249,9 +249,12 @@ Register each runner under a distinct name in group `codex`, with custom label
 server: `~/actions-runner` and `~/actions-runner-2`) and keep both services online.
 Each service user needs the tools listed in the action README, Codex credentials,
 and a working read-only sandbox. Shared-host runners share machine capacity;
-adding services does not add CPU or memory. The action uses a unique directory
-under `RUNNER_TEMP`, falling back to `TMPDIR` or `/tmp` outside Actions, and cleans
-up only its own directory. No custom dispatcher or runner-name binding is needed.
+adding services does not add CPU or memory. The deployed action at `2454440`
+already creates a unique directory with `mktemp -d` under `TMPDIR` or `/tmp`
+and cleans up only its own directory. The candidate in codex-review-action PR #12
+adds preference for `RUNNER_TEMP`; that behavior is not deployed until its
+approval, direct-action canary, and a separate reviewed central pin update.
+No custom dispatcher or runner-name binding is needed.
 
 An organization administrator should verify both registrations are online with
 the matching label, and that group `codex` permits each consuming repository
@@ -260,7 +263,12 @@ settings through the REST API requires organization runner administration access
 ordinary repository access is insufficient.
 
 After the central workflow is merged to the default branch, manually dispatch
-`Check reviewer runner pool` in `mobilint/.github`. It runs two independent jobs
+`Check reviewer runner pool` in `mobilint/.github` on the default branch. A job
+guard skips other repositories and refs before runner allocation; workflow
+concurrency serializes probe batches so repeated dispatches cannot run extra
+batches alongside the active probe. Organization runner-group access restrictions
+remain the administrator-controlled trust boundary for workflow execution.
+It runs two independent jobs
 with `max-parallel: 2`, no checkout and no write permissions. Each checks tools and
 sandbox startup and stays occupied for 20 seconds. When both runners are idle,
 verify distinct runner names and overlapping execution intervals in the two job

@@ -199,3 +199,8 @@ service needs a distinct installation/work directory, the required tools and
 Codex authentication, and working read-only sandbox support. Keep review assets
 unique per invocation and outside the PR checkout. Per-PR concurrency and gate
 waiting are separate from runner capacity and must not be bypassed for pooling.
+
+Keep the pool probe restricted to this repository and its default branch before
+runner allocation, and serialize probe batches with workflow concurrency.
+Describe deployed action behavior separately from candidate changes awaiting
+approval, a direct-action canary, and a reviewed pin promotion.

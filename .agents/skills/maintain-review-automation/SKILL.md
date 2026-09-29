@@ -128,3 +128,8 @@ Preserve group/label pool selection and per-invocation workspace isolation.
 Use the central manual `check-reviewer-pool.yml` workflow to check two eligible
 jobs; compare their runner names and execution intervals. Do not infer a pool
 failure from a job waiting on the gate or a per-PR concurrency group.
+
+Keep the pool probe restricted to this repository and its default branch before
+runner allocation, and serialize probe batches with workflow concurrency.
+Describe deployed action behavior separately from candidate changes awaiting
+approval, a direct-action canary, and a reviewed pin promotion.
