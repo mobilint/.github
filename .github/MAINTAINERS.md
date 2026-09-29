@@ -8,7 +8,7 @@ repository root README remains a user-facing overview.
 ```text
 consumer .github/workflows/code-review.yml
   -> mobilint/.github/.github/workflows/codex-pr-review.yml@main
-  -> mobilint/codex-review-action@2454440c864b485d23ae3c3a4078f0adb445c497
+  -> mobilint/codex-review-action@f916d56501f75f1ba48cbb3fa7857ea7d09ab048
   -> self-hosted runner group codex, label codex-reviewer
 ```
 
@@ -241,3 +241,36 @@ The guide CI checks canonical files as tracked `100644` blobs and accepts only
 those two exact `120000` link targets by Git blob identity. It never dereferences
 PR-controlled links. Other source-file and managed-caller checks still reject
 symlinks. The regression tests cover valid links and hostile alternatives.
+
+## Multiple review runners
+
+Register each runner under a distinct name in group `codex`, with custom label
+`codex-reviewer`. Use separate installation and `_work` directories (on this
+server: `~/actions-runner` and `~/actions-runner-2`) and keep both services online.
+Each service user needs the tools listed in the action README, Codex credentials,
+and a working read-only sandbox. Shared-host runners share machine capacity;
+adding services does not add CPU or memory. The action uses a unique directory
+under `RUNNER_TEMP`, falling back to `TMPDIR` or `/tmp` outside Actions, and cleans
+up only its own directory. No custom dispatcher or runner-name binding is needed.
+
+An organization administrator should verify both registrations are online with
+the matching label, and that group `codex` permits each consuming repository
+(and its reusable workflow if workflow restrictions are enabled). Listing these
+settings through the REST API requires organization runner administration access;
+ordinary repository access is insufficient.
+
+After the central workflow is merged to the default branch, manually dispatch
+`Check reviewer runner pool` in `mobilint/.github`. It runs two independent jobs
+with `max-parallel: 2`, no checkout and no write permissions. Each checks tools and
+sandbox startup and stays occupied for 20 seconds. When both runners are idle,
+verify distinct runner names and overlapping execution intervals in the two job
+logs. A serial run alone does not prove failure: a runner may have been busy or
+offline. This smoke check does not authenticate a model request or publish a review.
+
+GitHub schedules eligible jobs, not jobs still waiting at the hosted gate or
+blocked by concurrency. Automatic reviews remain latest-update-wins per PR;
+mention reviews retain their bounded per-PR slots, so slot collisions can wait
+or replace pending work even when a runner is idle. These are intentional review
+policies, not runner affinity. An already-running review is not migrated. A queued
+eligible job with an idle matching runner warrants checking its labels, group
+access, online status and runner service logs before changing concurrency policy.

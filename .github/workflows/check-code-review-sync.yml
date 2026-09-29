@@ -27,6 +27,7 @@ jobs:
           ruby -e '
             require "yaml"
             %w[
+              .github/workflows/check-reviewer-pool.yml
               .github/workflows/code-review.yml
               .github/workflows/codex-pr-review.yml
               .github/workflows/sync-code-review-template.yml

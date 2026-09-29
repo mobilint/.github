@@ -121,3 +121,10 @@ automation branch requiring reset; other API failures remain visible errors.
 Audit existing automation branches even when the default caller is current.
 Require the caller to be a regular 100644 Git blob with canonical identity;
 never trust a symlink-dereferencing Contents API response for caller equality.
+
+## Multiple runners
+
+Preserve group/label pool selection and per-invocation workspace isolation.
+Use the central manual `check-reviewer-pool.yml` workflow to check two eligible
+jobs; compare their runner names and execution intervals. Do not infer a pool
+failure from a job waiting on the gate or a per-PR concurrency group.

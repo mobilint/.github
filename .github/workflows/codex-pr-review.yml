@@ -673,6 +673,8 @@ jobs:
           && format('codex-review-mention-{0}-{1}-{2}', needs.gate.outputs.repo, needs.gate.outputs.pr_number, needs.gate.outputs.mention_slot)
           || format('codex-review-run-{0}-{1}', needs.gate.outputs.repo, needs.gate.outputs.pr_number) }}
       cancel-in-progress: false
+    # GitHub dispatches to any idle matching runner; do not pin a runner name.
+    # Per-PR concurrency above is separate from runner-pool capacity.
     runs-on:
       group: codex
       labels: codex-reviewer
@@ -682,7 +684,7 @@ jobs:
       - name: Run Codex review
         # Pin third-party executable code to a reviewed commit. Update this SHA
         # deliberately alongside the action contract and its test suite.
-        uses: mobilint/codex-review-action@2454440c864b485d23ae3c3a4078f0adb445c497
+        uses: mobilint/codex-review-action@f916d56501f75f1ba48cbb3fa7857ea7d09ab048
         with:
           repo: ${{ needs.gate.outputs.repo }}
           pr_number: ${{ needs.gate.outputs.pr_number }}
