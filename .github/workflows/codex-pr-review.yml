@@ -673,6 +673,8 @@ jobs:
           && format('codex-review-mention-{0}-{1}-{2}', needs.gate.outputs.repo, needs.gate.outputs.pr_number, needs.gate.outputs.mention_slot)
           || format('codex-review-run-{0}-{1}', needs.gate.outputs.repo, needs.gate.outputs.pr_number) }}
       cancel-in-progress: false
+    # GitHub dispatches to any idle matching runner; do not pin a runner name.
+    # Per-PR concurrency above is separate from runner-pool capacity.
     runs-on:
       group: codex
       labels: codex-reviewer
