@@ -8,7 +8,7 @@ repository root README remains a user-facing overview.
 ```text
 consumer .github/workflows/code-review.yml
   -> mobilint/.github/.github/workflows/codex-pr-review.yml@main
-  -> mobilint/codex-review-action@f916d56501f75f1ba48cbb3fa7857ea7d09ab048
+  -> mobilint/codex-review-action@2454440c864b485d23ae3c3a4078f0adb445c497
   -> self-hosted runner group codex, label codex-reviewer
 ```
 
@@ -269,8 +269,12 @@ offline. This smoke check does not authenticate a model request or publish a rev
 
 GitHub schedules eligible jobs, not jobs still waiting at the hosted gate or
 blocked by concurrency. Automatic reviews remain latest-update-wins per PR;
-mention reviews retain their bounded per-PR slots, so slot collisions can wait
-or replace pending work even when a runner is idle. These are intentional review
-policies, not runner affinity. An already-running review is not migrated. A queued
+mention reviews retain their bounded per-PR slots with `cancel-in-progress: false`,
+so a newer mention never interrupts the running review. A colliding mention waits
+for that slot even if another runner is idle. GitHub permits only one pending job
+per group by default: a third colliding request replaces the older pending job,
+not the running job, even with `cancel-in-progress: false`. See the official
+[concurrency documentation](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency).
+These are intentional review policies, not runner affinity. An already-running review is not migrated. A queued
 eligible job with an idle matching runner warrants checking its labels, group
 access, online status and runner service logs before changing concurrency policy.
