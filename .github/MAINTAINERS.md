@@ -241,3 +241,48 @@ The guide CI checks canonical files as tracked `100644` blobs and accepts only
 those two exact `120000` link targets by Git blob identity. It never dereferences
 PR-controlled links. Other source-file and managed-caller checks still reject
 symlinks. The regression tests cover valid links and hostile alternatives.
+
+## Multiple review runners
+
+Register each runner under a distinct name in group `codex`, with custom label
+`codex-reviewer`. Use separate installation and `_work` directories (on this
+server: `~/actions-runner` and `~/actions-runner-2`) and keep both services online.
+Each service user needs the tools listed in the action README, Codex credentials,
+and a working read-only sandbox. Shared-host runners share machine capacity;
+adding services does not add CPU or memory. The deployed action at `2454440`
+already creates a unique directory with `mktemp -d` under `TMPDIR` or `/tmp`
+and cleans up only its own directory. The candidate in codex-review-action PR #12
+adds preference for `RUNNER_TEMP`; that behavior is not deployed until its
+approval, direct-action canary, and a separate reviewed central pin update.
+No custom dispatcher or runner-name binding is needed.
+
+An organization administrator should verify both registrations are online with
+the matching label, and that group `codex` permits each consuming repository
+(and its reusable workflow if workflow restrictions are enabled). Listing these
+settings through the REST API requires organization runner administration access;
+ordinary repository access is insufficient.
+
+After the central workflow is merged to the default branch, manually dispatch
+`Check reviewer runner pool` in `mobilint/.github` on the default branch. A job
+guard skips other repositories and refs before runner allocation; workflow
+concurrency serializes probe batches so repeated dispatches cannot run extra
+batches alongside the active probe. Organization runner-group access restrictions
+remain the administrator-controlled trust boundary for workflow execution.
+It runs two independent jobs
+with `max-parallel: 2`, no checkout and no write permissions. Each checks tools and
+sandbox startup and stays occupied for 20 seconds. When both runners are idle,
+verify distinct runner names and overlapping execution intervals in the two job
+logs. A serial run alone does not prove failure: a runner may have been busy or
+offline. This smoke check does not authenticate a model request or publish a review.
+
+GitHub schedules eligible jobs, not jobs still waiting at the hosted gate or
+blocked by concurrency. Automatic reviews remain latest-update-wins per PR;
+mention reviews retain their bounded per-PR slots with `cancel-in-progress: false`,
+so a newer mention never interrupts the running review. A colliding mention waits
+for that slot even if another runner is idle. GitHub permits only one pending job
+per group by default: a third colliding request replaces the older pending job,
+not the running job, even with `cancel-in-progress: false`. See the official
+[concurrency documentation](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency).
+These are intentional review policies, not runner affinity. An already-running review is not migrated. A queued
+eligible job with an idle matching runner warrants checking its labels, group
+access, online status and runner service logs before changing concurrency policy.
