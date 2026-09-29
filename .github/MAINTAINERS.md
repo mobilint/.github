@@ -269,3 +269,7 @@ not the running job, even with `cancel-in-progress: false`. See the official
 These are intentional review policies, not runner affinity. An already-running review is not migrated. A queued
 eligible job with an idle matching runner warrants checking its labels, group
 access, online status and runner service logs before changing concurrency policy.
+
+The managed-caller regression test also locks the exact reviewed central SHA.
+Update that assertion alongside a pin promotion only after verifying the new
+repository/ref and workflow path; do not derive its expected value from the caller.

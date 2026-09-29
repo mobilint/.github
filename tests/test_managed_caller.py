@@ -93,6 +93,18 @@ class ManagedCallerTests(unittest.TestCase):
             r"codex-pr-review\.yml@[0-9a-f]{40}$",
         )
 
+    def test_managed_caller_uses_reviewed_central_commit(self) -> None:
+        # Verified in mobilint/.github: merged PR #12 contains the reusable
+        # workflow. Update only after verifying a new reviewed revision there.
+        reviewed_sha = "28642ba1d8df2f8ff63f19113b06186191527d8f"
+        text = CANONICAL.read_text(encoding="utf-8")
+        refs = re.findall(
+            r"(?m)^    uses: mobilint/\.github/\.github/workflows/"
+            r"codex-pr-review\.yml@([^\s#]+)$",
+            text,
+        )
+        self.assertEqual(refs, [reviewed_sha])
+
     def test_reusable_defaults_remain_central(self) -> None:
         text = REUSABLE.read_text(encoding="utf-8")
         for name, expected in (

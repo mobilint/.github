@@ -138,3 +138,7 @@ Pin managed reusable-workflow calls to a reviewed full commit SHA from
 `mobilint/.github`, verifying that the workflow exists at that revision. Keep
 the central template, generated example, and consumer callers synchronized.
 Check SHA provenance through GitHub; a 40-hex syntax test alone cannot prove it.
+
+The managed-caller regression test also locks the exact reviewed central SHA.
+Update that assertion alongside a pin promotion only after verifying the new
+repository/ref and workflow path; do not derive its expected value from the caller.
