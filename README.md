@@ -61,3 +61,29 @@ GitHub assigns eligible queued jobs to any idle matching runner. Two registered,
 online runners can execute two reviews at once; additional eligible jobs wait
 for capacity. This does not bypass the trust gate or per-PR concurrency policy.
 See the maintainer guide for setup and the manual pool check.
+
+## Official connector quota fallback
+
+The central reusable workflow checks official output immediately, then every
+15 seconds during the configured wait (five minutes by default). A recognized
+quota or review-credit error from `chatgpt-codex-connector[bot]` starts local
+fallback on the next check, including “You have reached your Codex usage limits
+for code reviews.” Completed reviews or 👍 end the wait immediately. Silence retains the timeout;
+mention reviews bypass it.
+Checks use the triggering PR event timestamp, require the current head for
+reviews, and ignore matching text from other authors or older comments. An eyes
+reaction does not end polling early because the connector can report quota
+failure afterward. Trust gates and runner scheduling still apply.
+
+This behavior is implemented in the central workflow, not the action. Consumers
+pinned to older workflow SHAs need a reviewed caller-pin update after this
+central change merges; their behavior does not change merely by updating the
+action. Keep timeout, author, timestamp, and head guards covered by regression
+tests when editing fallback detection. Polling uses one bounded GraphQL query
+per check for the newest 100 reviews, comments, and reactions. Partial API errors
+fail visibly. Configured waits accept 0–20 minutes; invalid or larger values use
+the five-minute default, leaving headroom within the 30-minute gate timeout.
+
+Managed callers pin the central review workflow to a reviewed full commit SHA.
+Workflow updates and rollbacks reach consumers through reviewed caller pin
+updates; changing the central default branch alone does not update those callers.

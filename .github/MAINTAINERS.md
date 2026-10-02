@@ -7,7 +7,7 @@ repository root README remains a user-facing overview.
 
 ```text
 consumer .github/workflows/code-review.yml
-  -> mobilint/.github/.github/workflows/codex-pr-review.yml@main
+  -> mobilint/.github/.github/workflows/codex-pr-review.yml@28642ba1d8df2f8ff63f19113b06186191527d8f
   -> mobilint/codex-review-action@2454440c864b485d23ae3c3a4078f0adb445c497
   -> self-hosted runner group codex, label codex-reviewer
 ```
@@ -157,61 +157,44 @@ explicit `--dry-run` for live API validation.
 ## Release channel
 
 The reusable workflow pins the review action to an immutable, reviewed commit.
-The central reusable workflow itself remains on `@main`; neither central
-repository currently has a validated `stable` branch. The release sequence is:
+The canonical caller pins the central workflow to a reviewed full commit SHA
+from `mobilint/.github`. Verify the workflow exists at that exact repository/ref;
+a syntactically valid SHA from another repository cannot be used. Existing
+consumers on mutable refs remain on those refs until their migration PRs merge.
 
-1. Merge reviewed action changes on `main` and record the exact candidate SHA.
-   Keep the production reusable workflow's action pin unchanged during testing.
-   Record the currently deployed central commit, action SHA, and consumer channel
-   (`main` or `stable`) so the previous validated release is identifiable.
-2. In a controlled repository, use a dedicated trusted canary workflow that
-   invokes `mobilint/codex-review-action@<candidate-SHA>` directly, with explicit
-   `auto` and `mention` inputs and their corresponding event contexts. Do not
-   route this canary through the production reusable workflow, which still
-   references the old action. Verify checkout, sandbox, and review delivery.
-3. Through a reviewed PR, advance the reusable workflow's action pin on `main`
-   to exactly the SHA exercised by the direct-action canary and synchronize its
-   contract fixture. Record the resulting central workflow commit and validate
-   its automatic and mention routing in the controlled repository.
-4. Only after that validation, create or advance `mobilint/.github`'s protected
-   `stable` branch to the recorded central workflow commit. Create or advance
-   the action repository's protected `stable` branch to the tested action
-   revision as well; the reusable workflow continues to use the immutable SHA.
-   Follow the authorized branch-protection/release process for these updates.
-5. Verify that the distributed `mobilint/.github` `stable` ref resolves to the
-   validated central commit, and exercise automatic and mention routing through
-   `codex-pr-review.yml@stable` in the controlled repository. If either check
-   fails, do not distribute the caller; correct the release and repeat validation.
-6. Change the canonical caller to reference that validated `@stable` workflow,
-   keep the generated example identical, and copy the caller or explicitly run
-   the local synchronizer. For later releases, repeat the candidate canary,
-   reviewed pin promotion, stable-ref advancement, and stable-routing validation.
+1. Merge reviewed action changes and record the exact candidate SHA. Keep the
+   production action pin unchanged during testing. Record each consumer's
+   deployed workflow SHA/ref and its action pin for rollback.
+2. In a controlled repository, invoke the candidate action SHA directly with
+   explicit auto and mention inputs and corresponding event contexts. Verify
+   checkout, sandbox, and review delivery; the production workflow still uses
+   the old action during this canary.
+3. Through a reviewed PR, promote exactly the tested action SHA in the central
+   reusable workflow and synchronize its contract fixture. Record the resulting
+   central commit and validate automatic and mention routing at that exact SHA.
+4. Update the canonical caller to that validated central SHA and keep its
+   generated example identical. Distribute through reviewed consumer PRs using
+   the operator-run synchronizer. Confirm each consumer's deployed pin after merge.
 
-Organization administrators must create branch protection for both `stable`
-branches, require the repositories' CI checks and reviews, restrict direct
-pushes, and document who advances the refs. Repository code cannot apply those
-settings by itself.
+A protected `stable` branch may track release bookkeeping, but distributed
+callers and the review action must keep immutable SHA references. Advancing a
+branch does not update those consumers. Runner-group workflow restrictions must
+permit the selected workflow SHA before migration; administrators manage that
+setting outside this repository.
 
 ## Rollback
 
 - Before merge, close any manually created consumer synchronization PR.
 - After merge, revert the managed caller commit in the consumer and set its
   manifest entry to `enabled: false` before the next sync.
-- For central policy or action rollback, use a reviewed revert/fix PR on `main`
-  to restore a validated known-good workflow and immutable action SHA, updating
-  the matching contract fixture. Preserve unrelated security fixes. Test both
-  automatic and mention behavior in the controlled repository and record the
-  resulting rollback commit; `@main` consumers receive it without caller changes.
-- For consumers on `@stable`, reverting `main` alone is insufficient. Through
-  the authorized protected-branch release process, advance `mobilint/.github`'s
-  `stable` branch to that validated rollback commit. Prefer a forward revert/fix
-  commit so rollback does not require a force-push. Verify the deployed stable
-  ref and its action pin, then recheck automatic and mention routing through
-  `codex-pr-review.yml@stable` before declaring recovery. Stop further caller
-  distribution if validation fails; repeat the correction and channel checks.
-  Consumers already using `@stable` need no caller edit. Updating the action
-  repository's `stable` branch alone cannot roll back the immutable action SHA
-  embedded in the central workflow.
+- For central policy or action rollback, use a reviewed revert/fix PR to restore
+  a validated workflow and immutable action SHA, keeping unrelated security fixes.
+  Validate automatic and mention behavior, then update the canonical caller and
+  affected consumers to that rollback commit through reviewed PRs. Reverting
+  `main` or advancing `stable` alone cannot update SHA-pinned consumers.
+- Audit legacy consumers still on mutable refs and validate every deployed
+  channel during rollback. Do not declare recovery until the actual consumer
+  refs resolve to the validated rollback workflow and action.
 - To roll back a caller schema, revert the canonical template, synchronize its
   generated example, and update affected consumer callers through reviewed PRs.
   Verify the workflow ref those callers actually use; template changes alone do
@@ -286,3 +269,29 @@ not the running job, even with `cancel-in-progress: false`. See the official
 These are intentional review policies, not runner affinity. An already-running review is not migrated. A queued
 eligible job with an idle matching runner warrants checking its labels, group
 access, online status and runner service logs before changing concurrency policy.
+
+## Official connector quota fallback
+
+The central reusable workflow checks official output immediately, then every
+15 seconds during the configured wait (five minutes by default). A recognized
+quota or review-credit error from `chatgpt-codex-connector[bot]` starts local
+fallback on the next check, including “You have reached your Codex usage limits
+for code reviews.” Completed reviews or 👍 end the wait immediately. Silence retains the timeout;
+mention reviews bypass it.
+Checks use the triggering PR event timestamp, require the current head for
+reviews, and ignore matching text from other authors or older comments. An eyes
+reaction does not end polling early because the connector can report quota
+failure afterward. Trust gates and runner scheduling still apply.
+
+This behavior is implemented in the central workflow, not the action. Consumers
+pinned to older workflow SHAs need a reviewed caller-pin update after this
+central change merges; their behavior does not change merely by updating the
+action. Keep timeout, author, timestamp, and head guards covered by regression
+tests when editing fallback detection. Polling uses one bounded GraphQL query
+per check for the newest 100 reviews, comments, and reactions. Partial API errors
+fail visibly. Configured waits accept 0–20 minutes; invalid or larger values use
+the five-minute default, leaving headroom within the 30-minute gate timeout.
+
+The managed-caller regression test also locks the exact reviewed central SHA.
+Update that assertion alongside a pin promotion only after verifying the new
+repository/ref and workflow path; do not derive its expected value from the caller.
