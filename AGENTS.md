@@ -118,10 +118,10 @@ Do not assume a change in only one repository completes the feature.
   runtime; use `actions/checkout@v6`.
 - Pin cross-repository executable actions to reviewed full commit SHAs.
   Canary the exact candidate via a direct action invocation before promoting
-  the production pin; then validate the updated central routing. Advance the
-  stable workflow ref to that validated commit and test it before distribution.
-  Rollbacks must also advance and validate every deployed workflow channel;
-  reverting main alone does not repair stable consumers.
+  the production pin; then validate the updated central routing. Distribute the
+  validated central workflow by full commit SHA through reviewed caller PRs.
+  Rollbacks also require caller pin updates; reverting main alone does not
+  repair SHA-pinned consumers.
 - Keep the canonical caller conservative because it is copied to other
   repositories.
 - Do not commit generated clone badge JSON to `main`; keep it on `badges`.
@@ -204,3 +204,12 @@ Keep the pool probe restricted to this repository and its default branch before
 runner allocation, and serialize probe batches with workflow concurrency.
 Describe deployed action behavior separately from candidate changes awaiting
 approval, a direct-action canary, and a reviewed pin promotion.
+
+Pin managed reusable-workflow calls to a reviewed full commit SHA from
+`mobilint/.github`, verifying that the workflow exists at that revision. Keep
+the central template, generated example, and consumer callers synchronized.
+Check SHA provenance through GitHub; a 40-hex syntax test alone cannot prove it.
+
+The managed-caller regression test also locks the exact reviewed central SHA.
+Update that assertion alongside a pin promotion only after verifying the new
+repository/ref and workflow path; do not derive its expected value from the caller.
