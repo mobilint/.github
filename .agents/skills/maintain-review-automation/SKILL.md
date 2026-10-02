@@ -68,10 +68,10 @@ templates, formatter, and tests whenever the shared contract is affected.
 - Use `actions/checkout@v6`.
 - Pin cross-repository executable actions to reviewed full commit SHAs.
   Canary the exact candidate via a direct action invocation before promoting
-  the production pin; then validate the updated central routing. Advance the
-  stable workflow ref to that validated commit and test it before distribution.
-  Rollbacks must also advance and validate every deployed workflow channel;
-  reverting main alone does not repair stable consumers.
+  the production pin; then validate the updated central routing. Distribute the
+  validated central workflow by full commit SHA through reviewed caller PRs.
+  Rollbacks also require caller pin updates; reverting main alone does not
+  repair SHA-pinned consumers.
 - For pull-request checks, require `100644` canonical sources and allow only
   the exact `120000` Claude links to `AGENTS.md` and `../.agents/skills`. Compare
   index modes and blob IDs without following or printing PR-controlled paths.
@@ -140,7 +140,8 @@ The central reusable workflow checks official output immediately, then every
 15 seconds during the configured wait (five minutes by default). A recognized
 quota or review-credit error from `chatgpt-codex-connector[bot]` starts local
 fallback on the next check, including “You have reached your Codex usage limits
-for code reviews.” Silence retains the timeout; mention reviews bypass it.
+for code reviews.” Completed reviews or 👍 end the wait immediately. Silence retains the timeout;
+mention reviews bypass it.
 Checks use the triggering PR event timestamp, require the current head for
 reviews, and ignore matching text from other authors or older comments. An eyes
 reaction does not end polling early because the connector can report quota
@@ -150,4 +151,16 @@ This behavior is implemented in the central workflow, not the action. Consumers
 pinned to older workflow SHAs need a reviewed caller-pin update after this
 central change merges; their behavior does not change merely by updating the
 action. Keep timeout, author, timestamp, and head guards covered by regression
-tests when editing fallback detection.
+tests when editing fallback detection. Polling uses one bounded GraphQL query
+per check for the newest 100 reviews, comments, and reactions. Partial API errors
+fail visibly. Configured waits accept 0–20 minutes; invalid or larger values use
+the five-minute default, leaving headroom within the 30-minute gate timeout.
+
+Pin managed reusable-workflow calls to a reviewed full commit SHA from
+`mobilint/.github`, verifying that the workflow exists at that revision. Keep
+the central template, generated example, and consumer callers synchronized.
+Check SHA provenance through GitHub; a 40-hex syntax test alone cannot prove it.
+
+The managed-caller regression test also locks the exact reviewed central SHA.
+Update that assertion alongside a pin promotion only after verifying the new
+repository/ref and workflow path; do not derive its expected value from the caller.

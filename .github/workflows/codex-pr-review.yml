@@ -428,7 +428,7 @@ jobs:
           wait_minutes="${WAIT_MINUTES}"
           if ! [[ "${wait_minutes}" =~ ^[0-9]+$ ]] ||
             (( ${#wait_minutes} > 2 )) ||
-            (( 10#${wait_minutes} > 60 )); then
+            (( 10#${wait_minutes} > 20 )); then
             wait_minutes=5
           fi
           deadline=$(( SECONDS + 10#${wait_minutes} * 60 ))
@@ -439,50 +439,32 @@ jobs:
           current_limit_phrase='you have reached your codex usage limits for code reviews.'
           credits_phrase='credits must be used to enable repository wide code reviews.'
 
-          max_pages=3
-          per_page=100
-
-          collect_pages() {
-            local output_file="$1"
-            local endpoint="$2"
-            local accept_header="${3:-}"
-            local page=1
-            local collected=0
-            local page_file
-            local page_count
-
-            printf '[]\n' > "${output_file}"
-
-            while [[ ${page} -le ${max_pages} && ${collected} -lt $((max_pages * per_page)) ]]; do
-              page_file="$(mktemp)"
-              if [[ -n "${accept_header}" ]]; then
-                gh api "${endpoint}?per_page=${per_page}&page=${page}" -H "${accept_header}" > "${page_file}"
-              else
-                gh api "${endpoint}?per_page=${per_page}&page=${page}" > "${page_file}"
-              fi
-
-              page_count=$(jq 'length' "${page_file}")
-              if [[ "${page_count}" -eq 0 ]]; then
-                rm -f "${page_file}"
-                break
-              fi
-
-              jq -s 'add' "${output_file}" "${page_file}" > "${output_file}.tmp"
-              mv "${output_file}.tmp" "${output_file}"
-              rm -f "${page_file}"
-
-              collected=$((collected + page_count))
-              if [[ "${page_count}" -lt ${per_page} ]]; then
-                break
-              fi
-              page=$((page + 1))
-            done
-          }
-
+          # One bounded query per poll: fetch the newest 100 of each signal.
+          # GraphQL bot authors omit [bot]; normalize only typed Bot authors.
+          query='query($owner:String!,$name:String!,$number:Int!){
+            repository(owner:$owner,name:$name){pullRequest(number:$number){
+              reviews(last:100){nodes{user:author{login __typename} body submitted_at:submittedAt commit{oid}}}
+              comments(last:100){nodes{user:author{login __typename} body created_at:createdAt}}
+              reactions(last:100){nodes{user{login} content created_at:createdAt}}
+            }}
+          }'
           while true; do
-            collect_pages reviews.json "/repos/${REPO}/pulls/${PR_NUMBER}/reviews"
-            collect_pages comments.json "/repos/${REPO}/issues/${PR_NUMBER}/comments"
-            collect_pages reactions.json "/repos/${REPO}/issues/${PR_NUMBER}/reactions" "Accept: application/vnd.github+json"
+            gh api graphql -f query="${query}" -f owner="${REPO%%/*}" \
+              -f name="${REPO#*/}" -F number="${PR_NUMBER}" > signals.json
+            # Partial GraphQL errors or a missing PR must not become silence.
+            jq -e '((.errors // []) | length == 0) and
+              (.data.repository.pullRequest != null)' signals.json >/dev/null
+            jq '.data.repository.pullRequest.reviews.nodes |
+              map(.commit_id = .commit.oid |
+                if .user.__typename == "Bot" then .user.login += "[bot]" else . end)' \
+              signals.json > reviews.json
+            jq '.data.repository.pullRequest.comments.nodes |
+              map(if .user.__typename == "Bot" then .user.login += "[bot]" else . end)' \
+              signals.json > comments.json
+            jq '.data.repository.pullRequest.reactions.nodes |
+              map(if .content == "THUMBS_UP" then .content = "+1"
+                  elif .content == "EYES" then .content = "eyes" else . end)' \
+              signals.json > reactions.json
 
             echo "Fetched $(jq 'length' reviews.json) reviews, $(jq 'length' comments.json) comments, $(jq 'length' reactions.json) reactions while checking for official Codex output."
 
@@ -577,6 +559,13 @@ jobs:
               exit 0
             fi
 
+            # Completed output ends the wait; eyes remains provisional.
+            if [[ "${official_review_found}" == "true" || "${official_thumbsup_reaction}" == "true" ]]; then
+              echo "run_local=false" >> "$GITHUB_OUTPUT"
+              echo "reason=official-signal-found" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
             if (( SECONDS < deadline )); then
               remaining=$(( deadline - SECONDS ))
               delay=15
@@ -585,7 +574,7 @@ jobs:
               continue
             fi
 
-            if [[ "${official_review_found}" == "true" || "${official_thumbsup_reaction}" == "true" || "${official_eyes_reaction}" == "true" ]]; then
+            if [[ "${official_eyes_reaction}" == "true" ]]; then
               echo "run_local=false" >> "$GITHUB_OUTPUT"
               echo "reason=official-signal-found" >> "$GITHUB_OUTPUT"
               exit 0
