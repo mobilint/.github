@@ -204,3 +204,21 @@ Keep the pool probe restricted to this repository and its default branch before
 runner allocation, and serialize probe batches with workflow concurrency.
 Describe deployed action behavior separately from candidate changes awaiting
 approval, a direct-action canary, and a reviewed pin promotion.
+
+## Official connector quota fallback
+
+The central reusable workflow checks official output immediately, then every
+15 seconds during the configured wait (five minutes by default). A recognized
+quota or review-credit error from `chatgpt-codex-connector[bot]` starts local
+fallback on the next check, including “You have reached your Codex usage limits
+for code reviews.” Silence retains the timeout; mention reviews bypass it.
+Checks use the triggering PR event timestamp, require the current head for
+reviews, and ignore matching text from other authors or older comments. An eyes
+reaction does not end polling early because the connector can report quota
+failure afterward. Trust gates and runner scheduling still apply.
+
+This behavior is implemented in the central workflow, not the action. Consumers
+pinned to older workflow SHAs need a reviewed caller-pin update after this
+central change merges; their behavior does not change merely by updating the
+action. Keep timeout, author, timestamp, and head guards covered by regression
+tests when editing fallback detection.

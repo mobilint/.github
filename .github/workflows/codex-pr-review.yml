@@ -29,7 +29,7 @@ on:
         type: number
         default: 1000000
       official_review_wait_minutes:
-        description: Minutes to wait for the official Codex review before running the self-hosted fallback
+        description: Maximum minutes to wait; recognized official quota errors trigger fallback on the next check
         required: false
         type: number
         default: 5
@@ -167,7 +167,7 @@ jobs:
           echo "pr_author_association=$(jq -r '.author_association // ""' <<< "${pr_issue_meta}")" >> "$GITHUB_OUTPUT"
           echo "pr_is_draft=$(jq -r '.isDraft' <<< "${pr_meta}")" >> "$GITHUB_OUTPUT"
           echo "pr_head_sha=$(jq -r '.headRefOid // ""' <<< "${pr_meta}")" >> "$GITHUB_OUTPUT"
-          echo "pr_event_time=$(jq -r '.updatedAt // ""' <<< "${pr_meta}")" >> "$GITHUB_OUTPUT"
+          echo "pr_event_time=$(jq -r '.pull_request.updated_at // .pull_request.created_at // ""' "$GITHUB_EVENT_PATH")" >> "$GITHUB_OUTPUT"
           echo "commenter=${commenter_login}" >> "$GITHUB_OUTPUT"
           echo "comment_id=${comment_id}" >> "$GITHUB_OUTPUT"
           echo "commenter_association=${commenter_association}" >> "$GITHUB_OUTPUT"
@@ -398,29 +398,6 @@ jobs:
             --repo "${{ steps.ctx.outputs.repo }}" \
             --body "📝 Skipping review because this PR is still in draft."
 
-      - name: Wait for official Codex review
-        if: >
-          github.event_name == 'pull_request' &&
-          steps.ctx.outputs.skip != 'true' &&
-          steps.trigger.outputs.should_run == 'true' &&
-          steps.trigger.outputs.mode == 'auto' &&
-          steps.trust.outputs.pr_allowed == 'true' &&
-          (!inputs.skip_draft_pr || steps.ctx.outputs.pr_is_draft != 'true')
-        shell: bash
-        env:
-          WAIT_MINUTES: ${{ inputs.official_review_wait_minutes }}
-        run: |
-          set -euo pipefail
-          wait_minutes="${WAIT_MINUTES}"
-          if ! [[ "${wait_minutes}" =~ ^[0-9]+$ ]] ||
-            (( ${#wait_minutes} > 2 )) ||
-            (( 10#${wait_minutes} > 60 )); then
-            wait_minutes=5
-          fi
-          wait_seconds=$(( wait_minutes * 60 ))
-          echo "Waiting ${wait_minutes} minute(s) for official Codex review before running self-hosted fallback."
-          sleep "${wait_seconds}"
-
       - name: Decide fallback execution
         id: fallback
         if: >
@@ -437,6 +414,7 @@ jobs:
           PR_NUMBER: ${{ steps.ctx.outputs.pr_number }}
           PR_HEAD_SHA: ${{ steps.ctx.outputs.pr_head_sha }}
           PR_EVENT_TIME: ${{ steps.ctx.outputs.pr_event_time }}
+          WAIT_MINUTES: ${{ inputs.official_review_wait_minutes }}
           TRIGGER_MODE: ${{ steps.trigger.outputs.mode }}
         run: |
           set -euo pipefail
@@ -447,8 +425,18 @@ jobs:
             exit 0
           fi
 
+          wait_minutes="${WAIT_MINUTES}"
+          if ! [[ "${wait_minutes}" =~ ^[0-9]+$ ]] ||
+            (( ${#wait_minutes} > 2 )) ||
+            (( 10#${wait_minutes} > 60 )); then
+            wait_minutes=5
+          fi
+          deadline=$(( SECONDS + 10#${wait_minutes} * 60 ))
+          echo "Checking official Codex output now and every 15 seconds for up to ${wait_minutes} minute(s)."
+
           official_bot_login='chatgpt-codex-connector[bot]'
           limit_phrase='codex usage limits have been reached for code reviews.'
+          current_limit_phrase='you have reached your codex usage limits for code reviews.'
           credits_phrase='credits must be used to enable repository wide code reviews.'
 
           max_pages=3
@@ -491,105 +479,122 @@ jobs:
             done
           }
 
-          collect_pages reviews.json "/repos/${REPO}/pulls/${PR_NUMBER}/reviews"
-          collect_pages comments.json "/repos/${REPO}/issues/${PR_NUMBER}/comments"
-          collect_pages reactions.json "/repos/${REPO}/issues/${PR_NUMBER}/reactions" "Accept: application/vnd.github+json"
+          while true; do
+            collect_pages reviews.json "/repos/${REPO}/pulls/${PR_NUMBER}/reviews"
+            collect_pages comments.json "/repos/${REPO}/issues/${PR_NUMBER}/comments"
+            collect_pages reactions.json "/repos/${REPO}/issues/${PR_NUMBER}/reactions" "Accept: application/vnd.github+json"
 
-          echo "Fetched $(jq 'length' reviews.json) reviews, $(jq 'length' comments.json) comments, $(jq 'length' reactions.json) reactions while checking for official Codex output."
+            echo "Fetched $(jq 'length' reviews.json) reviews, $(jq 'length' comments.json) comments, $(jq 'length' reactions.json) reactions while checking for official Codex output."
 
-          official_review_found=$(
-            jq -r \
-              --arg login "${official_bot_login}" \
-              --arg head "${PR_HEAD_SHA}" \
-              --arg event_time "${PR_EVENT_TIME}" \
-              --arg limit "${limit_phrase}" \
-              --arg credits "${credits_phrase}" '
-                any(.[];
-                  (((.user.login // "") | ascii_downcase) == $login) and
-                  (($event_time == "") or ((.submitted_at // "") >= $event_time)) and
-                  (($head == "") or ((.commit_id // "") == $head)) and
-                  (
-                    (((.body // "") | ascii_downcase | contains($limit)) or
-                    ((.body // "") | ascii_downcase | contains($credits))) | not
+            official_review_found=$(
+              jq -r \
+                --arg login "${official_bot_login}" \
+                --arg head "${PR_HEAD_SHA}" \
+                --arg event_time "${PR_EVENT_TIME}" \
+                --arg limit "${limit_phrase}" \
+                --arg current_limit "${current_limit_phrase}" \
+                --arg credits "${credits_phrase}" '
+                  any(.[];
+                    (((.user.login // "") | ascii_downcase) == $login) and
+                    (($event_time == "") or ((.submitted_at // "") >= $event_time)) and
+                    (($head == "") or ((.commit_id // "") == $head)) and
+                    (
+                      (((.body // "") | ascii_downcase | contains($limit)) or
+                      ((.body // "") | ascii_downcase | contains($current_limit)) or
+                      ((.body // "") | ascii_downcase | contains($credits))) | not
+                    )
                   )
-                )
-              ' reviews.json
-          )
+                ' reviews.json
+            )
 
-          official_limit_review=$(
-            jq -r \
-              --arg login "${official_bot_login}" \
-              --arg head "${PR_HEAD_SHA}" \
-              --arg event_time "${PR_EVENT_TIME}" \
-              --arg limit "${limit_phrase}" \
-              --arg credits "${credits_phrase}" '
-                any(.[];
-                  (((.user.login // "") | ascii_downcase) == $login) and
-                  (($event_time == "") or ((.submitted_at // "") >= $event_time)) and
-                  (($head == "") or ((.commit_id // "") == $head)) and
-                  (
-                    ((.body // "") | ascii_downcase | contains($limit)) or
-                    ((.body // "") | ascii_downcase | contains($credits))
+            official_limit_review=$(
+              jq -r \
+                --arg login "${official_bot_login}" \
+                --arg head "${PR_HEAD_SHA}" \
+                --arg event_time "${PR_EVENT_TIME}" \
+                --arg limit "${limit_phrase}" \
+                --arg current_limit "${current_limit_phrase}" \
+                --arg credits "${credits_phrase}" '
+                  any(.[];
+                    (((.user.login // "") | ascii_downcase) == $login) and
+                    (($event_time == "") or ((.submitted_at // "") >= $event_time)) and
+                    (($head == "") or ((.commit_id // "") == $head)) and
+                    (
+                      ((.body // "") | ascii_downcase | contains($limit)) or
+                      ((.body // "") | ascii_downcase | contains($current_limit)) or
+                      ((.body // "") | ascii_downcase | contains($credits))
+                    )
                   )
-                )
-              ' reviews.json
-          )
+                ' reviews.json
+            )
 
-          official_limit_comment=$(
-            jq -r \
-              --arg login "${official_bot_login}" \
-              --arg event_time "${PR_EVENT_TIME}" \
-              --arg limit "${limit_phrase}" \
-              --arg credits "${credits_phrase}" '
-                any(.[];
-                  (((.user.login // "") | ascii_downcase) == $login) and
-                  (($event_time == "") or ((.created_at // "") >= $event_time)) and
-                  (
-                    ((.body // "") | ascii_downcase | contains($limit)) or
-                    ((.body // "") | ascii_downcase | contains($credits))
+            official_limit_comment=$(
+              jq -r \
+                --arg login "${official_bot_login}" \
+                --arg event_time "${PR_EVENT_TIME}" \
+                --arg limit "${limit_phrase}" \
+                --arg current_limit "${current_limit_phrase}" \
+                --arg credits "${credits_phrase}" '
+                  any(.[];
+                    (((.user.login // "") | ascii_downcase) == $login) and
+                    (($event_time == "") or ((.created_at // "") >= $event_time)) and
+                    (
+                      ((.body // "") | ascii_downcase | contains($limit)) or
+                      ((.body // "") | ascii_downcase | contains($current_limit)) or
+                      ((.body // "") | ascii_downcase | contains($credits))
+                    )
                   )
-                )
-              ' comments.json
-          )
+                ' comments.json
+            )
 
-          official_thumbsup_reaction=$(
-            jq -r \
-              --arg login "${official_bot_login}" \
-              --arg event_time "${PR_EVENT_TIME}" '
-                any(.[];
-                  (((.user.login // "") | ascii_downcase) == $login) and
-                  ((.content // "") == "+1") and
-                  (($event_time == "") or ((.created_at // "") >= $event_time))
-                )
-              ' reactions.json
-          )
+            official_thumbsup_reaction=$(
+              jq -r \
+                --arg login "${official_bot_login}" \
+                --arg event_time "${PR_EVENT_TIME}" '
+                  any(.[];
+                    (((.user.login // "") | ascii_downcase) == $login) and
+                    ((.content // "") == "+1") and
+                    (($event_time == "") or ((.created_at // "") >= $event_time))
+                  )
+                ' reactions.json
+            )
 
-          official_eyes_reaction=$(
-            jq -r \
-              --arg login "${official_bot_login}" \
-              --arg event_time "${PR_EVENT_TIME}" '
-                any(.[];
-                  (((.user.login // "") | ascii_downcase) == $login) and
-                  ((.content // "") == "eyes") and
-                  (($event_time == "") or ((.created_at // "") >= $event_time))
-                )
-              ' reactions.json
-          )
+            official_eyes_reaction=$(
+              jq -r \
+                --arg login "${official_bot_login}" \
+                --arg event_time "${PR_EVENT_TIME}" '
+                  any(.[];
+                    (((.user.login // "") | ascii_downcase) == $login) and
+                    ((.content // "") == "eyes") and
+                    (($event_time == "") or ((.created_at // "") >= $event_time))
+                  )
+                ' reactions.json
+            )
 
-          if [[ "${official_limit_review}" == "true" || "${official_limit_comment}" == "true" ]]; then
+            if [[ "${official_limit_review}" == "true" || "${official_limit_comment}" == "true" ]]; then
+              echo "run_local=true" >> "$GITHUB_OUTPUT"
+              echo "reason=official-usage-limit" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            if (( SECONDS < deadline )); then
+              remaining=$(( deadline - SECONDS ))
+              delay=15
+              if (( remaining < delay )); then delay=$remaining; fi
+              sleep "${delay}"
+              continue
+            fi
+
+            if [[ "${official_review_found}" == "true" || "${official_thumbsup_reaction}" == "true" || "${official_eyes_reaction}" == "true" ]]; then
+              echo "run_local=false" >> "$GITHUB_OUTPUT"
+              echo "reason=official-signal-found" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
             echo "run_local=true" >> "$GITHUB_OUTPUT"
-            echo "reason=official-usage-limit" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [[ "${official_review_found}" == "true" || "${official_thumbsup_reaction}" == "true" || "${official_eyes_reaction}" == "true" ]]; then
-            echo "run_local=false" >> "$GITHUB_OUTPUT"
-            echo "reason=official-signal-found" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          echo "run_local=true" >> "$GITHUB_OUTPUT"
-          echo "reason=no-official-review" >> "$GITHUB_OUTPUT"
+            echo "reason=no-official-review" >> "$GITHUB_OUTPUT"
+            break
+          done
 
       - name: Log fallback skip
         if: >
