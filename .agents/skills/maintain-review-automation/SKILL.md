@@ -125,7 +125,7 @@ never trust a symlink-dereferencing Contents API response for caller equality.
 ## Multiple runners
 
 Preserve group/label pool selection and per-invocation workspace isolation.
-Use the central manual `check-reviewer-pool.yml` workflow to check two eligible
+Use the central manual `check-reviewer-pool.yml` workflow to check up to five eligible
 jobs; compare their runner names and execution intervals. Do not infer a pool
 failure from a job waiting on the gate or a per-PR concurrency group.
 
@@ -164,3 +164,25 @@ Check SHA provenance through GitHub; a 40-hex syntax test alone cannot prove it.
 The managed-caller regression test also locks the exact reviewed central SHA.
 Update that assertion alongside a pin promotion only after verifying the new
 repository/ref and workflow path; do not derive its expected value from the caller.
+
+## Explicit review model configuration
+
+The action accepts `model` (default `gpt-6-luna`) and `reasoning_effort`
+(default `max`). Keep the composite env handoff, both contract fixtures, central
+workflow inputs, and CLI arguments synchronized. Model names must be bounded
+ASCII identifiers; effort must be one of low/medium/high/xhigh/max. Invalid
+values use the documented defaults. CLI selection ignores interactive user
+configuration. Log the selection in the job summary without credentials.
+The runner wrapper must allow explicit action options to override its defaults.
+Keep candidate settings separate from deployed settings until reviewed canary
+and SHA promotion complete. The pool probe supports 1–5 slots and an optional
+quota-consuming authenticated smoke check; it remains default-branch-only.
+
+The model-input action pin was verified by direct auto/mention canary run
+`mobilint/codex-review-action/actions/runs/43829681155` at exact action revision
+`c156f3b883e3317f0c5a5a5fa9137f7bc2c07ad1`. Keep that evidence distinct from
+subsequent central routing validation and consumer caller-pin rollout.
+
+Runner wrapper config isolation is unconditional for `exec`; deduplicate caller
+flags only before `--` and preserve positional prompt data after that marker.
+Keep legacy runner overview paragraphs consistent with the operational guide.

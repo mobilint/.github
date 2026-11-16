@@ -44,6 +44,14 @@
     "allow_unsafe_no_sandbox_fallback": {
       "required": false,
       "default": "false"
+    },
+    "model": {
+      "required": false,
+      "default": "gpt-6-luna"
+    },
+    "reasoning_effort": {
+      "required": false,
+      "default": "max"
     }
   }
 }

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Install as ~/codex-runners/bin/codex; keep the actual CLI elsewhere.
+set -euo pipefail
+real_codex="${CODEX_REAL_BIN:-$HOME/.local/bin/codex}"
+if [[ "${1:-}" == exec ]]; then
+  shift
+  defaults=(-c 'model="gpt-6-luna"' -c 'model_reasoning_effort="max"')
+  # Always enforce isolation; remove duplicate caller flags only before the
+  # end-of-options marker so positional prompt data cannot affect this policy.
+  arguments=()
+  options_finished=false
+  for argument in "$@"; do
+    if [[ "$options_finished" == false && "$argument" == -- ]]; then
+      options_finished=true
+    elif [[ "$options_finished" == false && "$argument" == --ignore-user-config ]]; then
+      continue
+    fi
+    arguments+=("$argument")
+  done
+  exec "$real_codex" exec --ignore-user-config "${defaults[@]}" "${arguments[@]}"
+fi
+exec "$real_codex" "$@"

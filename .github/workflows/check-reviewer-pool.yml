@@ -2,6 +2,16 @@ name: Check reviewer runner pool
 
 on:
   workflow_dispatch:
+    inputs:
+      parallelism:
+        description: Number of simultaneous probe jobs (idle runners needed)
+        type: choice
+        options: ['1', '2', '3', '4', '5']
+        default: '5'
+      authenticated_smoke:
+        description: Make a small Luna/max request on each selected runner (uses account quota)
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -10,16 +20,38 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  prepare:
+    if: >-
+      github.repository == 'mobilint/.github' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      slots: ${{ steps.matrix.outputs.slots }}
+    steps:
+      - id: matrix
+        shell: bash
+        env:
+          PARALLELISM: ${{ inputs.parallelism }}
+        run: |
+          set -euo pipefail
+          case "$PARALLELISM" in
+            1|2|3|4|5) ;;
+            *) echo 'parallelism must be between 1 and 5' >&2; exit 1 ;;
+          esac
+          python3 -c 'import json, os; print("slots=" + json.dumps(list(range(1, int(os.environ["PARALLELISM"]) + 1))))' >> "$GITHUB_OUTPUT"
+
   probe:
+    needs: prepare
     if: >-
       github.repository == 'mobilint/.github' &&
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     name: Pool probe ${{ matrix.slot }}
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 5
       matrix:
-        slot: [1, 2]
+        slot: ${{ fromJSON(needs.prepare.outputs.slots) }}
     runs-on:
       group: codex
       labels: codex-reviewer
@@ -29,12 +61,32 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for command in gh git jq python3 codex; do
-            command -v "${command}" >/dev/null
+          for command in gh git jq python3 codex bwrap; do
+            command -v "$command" >/dev/null
           done
           codex sandbox sh -lc 'true'
-          printf 'Runner: %s\nRun: %s\n' "${RUNNER_NAME}" "${GITHUB_RUN_ID}"
-          printf 'Runner: `%s`\n' "${RUNNER_NAME}" >> "${GITHUB_STEP_SUMMARY}"
-          # Keep the first runner occupied briefly so an idle peer can take
-          # the second job. Compare job runner names and overlapping times.
+          printf 'Runner: %s\nRun: %s\n' "$RUNNER_NAME" "$GITHUB_RUN_ID"
+          printf 'Runner: `%s`\n' "$RUNNER_NAME" >> "$GITHUB_STEP_SUMMARY"
+          codex --version >> "$GITHUB_STEP_SUMMARY"
+          # Hold capacity so other slots can reach distinct idle runners.
           sleep 20
+
+      - name: Verify authenticated Luna request
+        if: inputs.authenticated_smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          smoke_dir=$(mktemp -d "$RUNNER_TEMP/codex-smoke.XXXXXXXXXX")
+          trap 'rm -rf "$smoke_dir"' EXIT
+          cd "$smoke_dir"
+          if ! codex exec --ignore-user-config --model gpt-6-luna \
+            -c 'model_reasoning_effort="max"' --ephemeral \
+            --skip-git-repo-check --sandbox read-only \
+            --output-last-message "$smoke_dir/result" \
+            'Reply with exactly OK. Do not use tools.' \
+            < /dev/null > "$smoke_dir/log" 2>&1; then
+            tail -n 30 "$smoke_dir/log" >&2
+            exit 1
+          fi
+          test "$(cat "$smoke_dir/result")" = OK
+          printf 'Authenticated smoke: `gpt-6-luna`, effort `max`, sandbox `read-only`: passed\n' >> "$GITHUB_STEP_SUMMARY"
