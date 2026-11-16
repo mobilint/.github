@@ -4,10 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       parallelism:
-        description: Number of simultaneous probe jobs (idle runners needed)
-        type: choice
-        options: ['1', '2', '3', '4', '5']
-        default: '5'
+        description: Number of probe jobs to request (1–256; match the capacity to check)
+        type: number
+        default: 5
       authenticated_smoke:
         description: Make a small Luna/max request on each selected runner (uses account quota)
         type: boolean
@@ -28,6 +27,7 @@ jobs:
     timeout-minutes: 2
     outputs:
       slots: ${{ steps.matrix.outputs.slots }}
+      parallelism: ${{ steps.matrix.outputs.parallelism }}
     steps:
       - id: matrix
         shell: bash
@@ -35,11 +35,20 @@ jobs:
           PARALLELISM: ${{ inputs.parallelism }}
         run: |
           set -euo pipefail
-          case "$PARALLELISM" in
-            1|2|3|4|5) ;;
-            *) echo 'parallelism must be between 1 and 5' >&2; exit 1 ;;
-          esac
-          python3 -c 'import json, os; print("slots=" + json.dumps(list(range(1, int(os.environ["PARALLELISM"]) + 1))))' >> "$GITHUB_OUTPUT"
+          python3 - <<'PYTHON' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+          import re
+          import sys
+
+          raw = os.environ["PARALLELISM"]
+          # GitHub supports at most 256 jobs in one matrix; this is not a pool cap.
+          if not re.fullmatch(r"[1-9][0-9]{0,2}", raw) or int(raw) > 256:
+              sys.exit("parallelism must be a positive whole number from 1 to 256")
+          count = int(raw)
+          print(f"parallelism={count}")
+          print("slots=" + json.dumps(list(range(1, count + 1))))
+          PYTHON
 
   probe:
     needs: prepare
@@ -49,7 +58,7 @@ jobs:
     name: Pool probe ${{ matrix.slot }}
     strategy:
       fail-fast: false
-      max-parallel: 5
+      max-parallel: ${{ fromJSON(needs.prepare.outputs.parallelism) }}
       matrix:
         slot: ${{ fromJSON(needs.prepare.outputs.slots) }}
     runs-on:

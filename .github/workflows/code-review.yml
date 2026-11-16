@@ -32,4 +32,4 @@ jobs:
       pull-requests: write
       issues: write
     # Keep this full commit SHA synchronized with the reviewed central caller.
-    uses: mobilint/.github/.github/workflows/codex-pr-review.yml@4cabbe49c0e7a521c24c36459b572910386cb40d
+    uses: mobilint/.github/.github/workflows/codex-pr-review.yml@17c7413b49c0aa056965bd03850685bb1e59a1b8
