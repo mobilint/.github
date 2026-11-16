@@ -3,6 +3,7 @@ import json
 import os
 import subprocess
 import tempfile
+import textwrap
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,9 +55,32 @@ class ReviewerPoolTests(unittest.TestCase):
         text = (ROOT / '.github/workflows/check-reviewer-pool.yml').read_text()
         self.assertEqual(text.count("github.repository == 'mobilint/.github'"), 2)
         self.assertEqual(text.count("github.event.repository.default_branch"), 2)
-        for fragment in ('max-parallel: 5', "options: ['1', '2', '3', '4', '5']",
-                         '1|2|3|4|5)', 'needs: prepare',
+        for fragment in ('max-parallel: ${{ fromJSON(needs.prepare.outputs.parallelism) }}',
+                         'parallelism: ${{ steps.matrix.outputs.parallelism }}', 'type: number', 'needs: prepare',
                          'slot: ${{ fromJSON(needs.prepare.outputs.slots) }}',
                          'if: inputs.authenticated_smoke', '--model gpt-6-luna',
                          'model_reasoning_effort="max"', '--sandbox read-only'):
             self.assertIn(fragment, text)
+
+    def test_real_matrix_planner_accepts_flexible_counts_and_rejects_bad_inputs(self) -> None:
+        text = (ROOT / '.github/workflows/check-reviewer-pool.yml').read_text()
+        # Execute the real workflow's hosted planner, rather than a duplicate validator.
+        run_block = text.split('        run: |\n', 1)[1].split('\n  probe:', 1)[0]
+        script = textwrap.dedent(run_block)
+        for value in ('1', '2', '5', '8', '256', '0', '-1', '257', '1.5', 'nan',
+                      '', '1; echo injected', '$(id)', '9' * 10000):
+            with self.subTest(value=value[:30]), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / 'output'
+                result = subprocess.run(['bash', '-c', script],
+                                        env={**os.environ, 'PARALLELISM': value,
+                                             'GITHUB_OUTPUT': str(output)},
+                                        capture_output=True, text=True)
+                if value in ('1', '2', '5', '8', '256'):
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    values = dict(line.split('=', 1) for line in output.read_text().splitlines())
+                    self.assertEqual(int(values['parallelism']), int(value))
+                    self.assertEqual(json.loads(values['slots']), list(range(1, int(value) + 1)))
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(output.read_text(), '')
+                    self.assertIn('positive whole number', result.stderr)

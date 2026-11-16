@@ -228,9 +228,10 @@ symlinks. The regression tests cover valid links and hostile alternatives.
 ## Multiple review runners
 
 Register each runner under a distinct name in group `codex`, with custom label
-`codex-reviewer`. The current five-runner pool uses
-`~/codex-runners/codex-reviewer-1` through `codex-reviewer-5`, with a separate
-installation and `_work` directory for every service. Each service user needs
+`codex-reviewer`. The current deployment has
+`~/codex-runners/codex-reviewer-1` through `codex-reviewer-5`; these are inventory
+examples, not a fixed pool size. Add or remove registrations as capacity needs
+change, keeping a separate installation and `_work` directory for every service. Each service user needs
 the tools listed in the action README, Codex credentials, and a working
 read-only sandbox. Shared-host runners share CPU, memory, and account quota.
 The pinned action creates a unique review directory under `RUNNER_TEMP` when
@@ -246,8 +247,10 @@ ordinary repository access is insufficient.
 
 Dispatch `Check reviewer runner pool` on this repository's default branch. Both
 planning and self-hosted jobs reject other repositories and refs before runner
-allocation; workflow concurrency serializes probe batches. Select 1–5 slots
-(default 5, `max-parallel: 5`). Each job checks tools and sandbox startup, records
+allocation; workflow concurrency serializes probe batches. Request a positive whole number of slots
+(default 5, matching the current deployment example). The hosted planner
+validates the count and uses it for both the matrix size and `max-parallel`. Each job checks tools and sandbox startup,
+records
 its runner and CLI version, and holds capacity for 20 seconds. With the pool
 idle, compare distinct runner names and overlapping execution intervals; jobs
 may otherwise reuse runners or wait for capacity. The optional
@@ -304,10 +307,16 @@ trust and configuration handling. Model names are limited to 128 ASCII letters,
 digits, dots, underscores, and hyphens, starting with a letter or digit. Effort
 is low/medium/high/xhigh/max. Invalid inputs fall back to the defaults.
 
-The managed caller now proposes central revision
-`4cabbe49c0e7a521c24c36459b572910386cb40d`, verified through the GitHub Contents
-API and merged PR #14. It includes prompt quota fallback, but still uses the
-previous action pin. It continues to use that revision’s older action pin.
+The canonical caller pins reviewed central revision
+`17c7413b49c0aa056965bd03850685bb1e59a1b8` from merged PR #15. Its workflow
+path and SHA were verified through GitHub. The exact revision passed both
+[automatic fallback routing](https://github.com/mobilint/codex-review-action/actions/runs/43832639608)
+and [mention routing](https://github.com/mobilint/codex-review-action/actions/runs/43833750345).
+The automatic run waited for the official reviewer before falling back; the
+mention run used a real pull-request-review event. Both invoked the pinned
+action with Luna/max and read-only sandboxing on `codex-reviewer-4`, and both
+delivered clean reactions. Existing consumers adopt these settings only when
+their caller-pin PRs merge.
 
 The deployment audit compared previous action pin
 `2454440c864b485d23ae3c3a4078f0adb445c497` with pre-release action main
@@ -316,17 +325,18 @@ commits exclusive to the previous pin were mode inference and merge commits.
 The reviewed release retains mode inference with regression coverage and adds
 explicit model selection. The exact merged action revision and successful
 canaries are recorded in [Canaried action promotion](#canaried-action-promotion).
-Those action-level gates are complete. After this central change merges, the
-remaining gates are central routing validation at its resulting SHA and a
-separate reviewed consumer caller-pin rollout. Do not point consumers at a
-central revision before that routing validation.
+The action-level and exact central routing gates are complete. The remaining
+step for other consumers is a separate reviewed caller-pin rollout. Future
+central code changes still require exact-SHA routing validation before caller
+promotion; the numeric pool-probe change does not alter this reusable workflow.
 
 ## Runner installation and removal
 
 Use one dedicated installation and `_work` directory per runner under
-`~/codex-runners/`. The current pool is `codex-reviewer-1` through
-`codex-reviewer-5`, group `codex` (ID 3), label `codex-reviewer`. Five eligible
-jobs can execute concurrently, subject to the trust gate, per-PR concurrency,
+`~/codex-runners/`. The current inventory is `codex-reviewer-1` through
+`codex-reviewer-5`, group `codex` (ID 3), label `codex-reviewer`. This inventory
+can grow or shrink. Eligible reviews can execute concurrently up to the number
+of available matching runners, subject to the trust gate, per-PR concurrency,
 shared host resources, and account quota. GitHub chooses any idle matching
 runner. Production reviews must never select runner names individually.
 
@@ -371,7 +381,12 @@ the installation already exists. Do not copy `.runner` or `.credentials` from
 another runner and do not use `--replace` during routine expansion:
 
 ```bash
-runner_name=codex-reviewer-6
+registered_names=$(gh api --paginate 'orgs/mobilint/actions/runner-groups/3/runners?per_page=100' --jq '.runners[].name')
+runner_index=1
+while [[ -e "$runner_root/codex-reviewer-$runner_index" ]] || grep -Fxq "codex-reviewer-$runner_index" <<< "$registered_names"; do
+  ((runner_index += 1))
+done
+runner_name="codex-reviewer-$runner_index"
 runner_dir="$runner_root/$runner_name"
 mkdir "$runner_dir"
 tar xzf "$archive" -C "$runner_dir"
@@ -398,12 +413,18 @@ systemctl restart "actions.runner.mobilint.$runner_name.service"` after changes
 that require restarting a service. Let an active review finish before restart.
 
 Run **Check reviewer runner pool** from the repository's default branch. Select
-1–5 slots (default 5); optionally enable **authenticated_smoke** to make a small
+a positive whole number of slots (default 5, the current deployment example);
+optionally enable **authenticated_smoke** to make a small
 Luna/max request on each selected runner. This uses account quota. Compare job
-runner names and overlapping timestamps: five completed jobs alone do not prove
-five distinct runners, since a busy pool can reuse runners. Both planning and
+runner names and overlapping timestamps: completion of the requested jobs alone
+does not prove that many distinct runners, since a busy pool can reuse runners. Both planning and
 self-hosted allocation reject non-default branches and other repositories.
-Readiness validates required tools and sandbox startup; the optional request
+The request is bounded to 1–256 jobs by GitHub's
+[matrix job limit](https://docs.github.com/en/actions/reference/limits), not by a
+fixed runner-pool capacity. Choose the count to match the capacity you intend to
+check; a request above the idle pool size may queue and reuse runners. Increase
+or reduce the request when registrations change; no production routing change
+is needed. Readiness validates required tools and sandbox startup; the optional request
 also validates authentication/model access without publishing a review.
 
 For removal, first pause new review submissions and wait until the exact runner
@@ -443,12 +464,13 @@ Its direct [auto and mention canaries](https://github.com/mobilint/codex-review-
 both executed Codex on `codex-reviewer-2` with model `gpt-6-luna`, reasoning
 `max`, and read-only sandboxing. Both jobs succeeded; automatic review added
 👍 to controlled PR #18 and mention review added 👍 to its source comment.
-The reviewed action suite passed 52 tests; the central suite passed 55 tests.
+The reviewed action suite passed 52 tests; the central promotion suite passed
+55 tests. The flexible planner adds real-workflow boundary coverage.
 
-This pin is eligible for central promotion; existing consumers still use their
-pinned central revisions. After merging the central change, validate automatic
-and mention routing at its resulting SHA before advancing the canonical caller
-again or running consumer synchronization. The caller update included with this
-promotion targets only the already merged quota-fallback workflow, not the new
-central candidate. Record the resulting routing evidence and consumer rollout
-separately.
+This action pin is deployed by central revision
+`17c7413b49c0aa056965bd03850685bb1e59a1b8`. Its automatic and mention routing
+checks are linked in [Model configuration and rollout status](#model-configuration-and-rollout-status).
+The canonical caller targets that verified revision. Other consumers remain on
+their own pinned revisions until their reviewed caller updates merge. The
+flexible pool probe is a separate manual workflow; expanding or shrinking the
+runner pool does not require a new production review-workflow pin.

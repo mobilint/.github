@@ -247,8 +247,11 @@ values use the documented defaults. CLI selection ignores interactive user
 configuration. Log the selection in the job summary without credentials.
 The runner wrapper must allow explicit action options to override its defaults.
 Keep candidate settings separate from deployed settings until reviewed canary
-and SHA promotion complete. The pool probe supports 1–5 slots and an optional
-quota-consuming authenticated smoke check; it remains default-branch-only.
+and SHA promotion complete. The pool probe accepts a positive whole-number request, defaulting to the
+current deployment example of 5. Its 1–256 bound follows GitHub matrix limits,
+not runner capacity; use the validated request for both matrix and parallelism.
+It supports an optional quota-consuming authenticated smoke check and remains
+default-branch-only.
 
 The model-input action pin was verified by direct auto/mention canary run
 `mobilint/codex-review-action/actions/runs/43829681155` at exact action revision
@@ -258,3 +261,14 @@ subsequent central routing validation and consumer caller-pin rollout.
 Runner wrapper config isolation is unconditional for `exec`; deduplicate caller
 flags only before `--` and preserve positional prompt data after that marker.
 Keep legacy runner overview paragraphs consistent with the operational guide.
+
+Treat runner counts as live inventory. Production selection stays group/label
+based; documentation and probes must allow the pool to grow or shrink without
+fixed five-runner routing or capacity assumptions. Test the real workflow
+planner with a count above five and invalid/boundary inputs.
+
+The canonical caller uses validated central revision
+`17c7413b49c0aa056965bd03850685bb1e59a1b8`: automatic fallback routing passed
+in `mobilint/codex-review-action/actions/runs/43832639608` and real review-event
+mention routing passed in run `43833750345`. Preserve official-first handling
+for initial PRs; use `@mobilint-review` to re-request after addressing findings.
