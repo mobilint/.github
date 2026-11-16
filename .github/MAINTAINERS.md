@@ -228,35 +228,33 @@ symlinks. The regression tests cover valid links and hostile alternatives.
 ## Multiple review runners
 
 Register each runner under a distinct name in group `codex`, with custom label
-`codex-reviewer`. Use separate installation and `_work` directories (on this
-server: `~/actions-runner` and `~/actions-runner-2`) and keep both services online.
-Each service user needs the tools listed in the action README, Codex credentials,
-and a working read-only sandbox. Shared-host runners share machine capacity;
-adding services does not add CPU or memory. The deployed action at `2454440`
-already creates a unique directory with `mktemp -d` under `TMPDIR` or `/tmp`
-and cleans up only its own directory. The candidate in codex-review-action PR #12
-adds preference for `RUNNER_TEMP`; that behavior is not deployed until its
-approval, direct-action canary, and a separate reviewed central pin update.
-No custom dispatcher or runner-name binding is needed.
+`codex-reviewer`. The current five-runner pool uses
+`~/codex-runners/codex-reviewer-1` through `codex-reviewer-5`, with a separate
+installation and `_work` directory for every service. Each service user needs
+the tools listed in the action README, Codex credentials, and a working
+read-only sandbox. Shared-host runners share CPU, memory, and account quota.
+The pinned action creates a unique review directory under `RUNNER_TEMP` when
+available and cleans up only its own directory. No custom dispatcher or
+runner-name binding is needed. See [Runner installation and removal](#runner-installation-and-removal)
+for the portable setup and service procedures.
 
-An organization administrator should verify both registrations are online with
+An organization administrator should verify all registrations are online with
 the matching label, and that group `codex` permits each consuming repository
 (and its reusable workflow if workflow restrictions are enabled). Listing these
 settings through the REST API requires organization runner administration access;
 ordinary repository access is insufficient.
 
-After the central workflow is merged to the default branch, manually dispatch
-`Check reviewer runner pool` in `mobilint/.github` on the default branch. A job
-guard skips other repositories and refs before runner allocation; workflow
-concurrency serializes probe batches so repeated dispatches cannot run extra
-batches alongside the active probe. Organization runner-group access restrictions
-remain the administrator-controlled trust boundary for workflow execution.
-It runs two independent jobs
-with `max-parallel: 2`, no checkout and no write permissions. Each checks tools and
-sandbox startup and stays occupied for 20 seconds. When both runners are idle,
-verify distinct runner names and overlapping execution intervals in the two job
-logs. A serial run alone does not prove failure: a runner may have been busy or
-offline. This smoke check does not authenticate a model request or publish a review.
+Dispatch `Check reviewer runner pool` on this repository's default branch. Both
+planning and self-hosted jobs reject other repositories and refs before runner
+allocation; workflow concurrency serializes probe batches. Select 1–5 slots
+(default 5, `max-parallel: 5`). Each job checks tools and sandbox startup, records
+its runner and CLI version, and holds capacity for 20 seconds. With the pool
+idle, compare distinct runner names and overlapping execution intervals; jobs
+may otherwise reuse runners or wait for capacity. The optional
+`authenticated_smoke` input makes a real Luna/max request on each selected
+runner, using account quota without publishing a review. Tool/sandbox checks
+alone do not authenticate a model request. Organization runner-group access
+restrictions remain the administrator-controlled workflow trust boundary.
 
 GitHub schedules eligible jobs, not jobs still waiting at the hosted gate or
 blocked by concurrency. Automatic reviews remain latest-update-wins per PR;
@@ -298,7 +296,7 @@ repository/ref and workflow path; do not derive its expected value from the call
 
 ## Model configuration and rollout status
 
-The canaried action accepts `model` and `reasoning_effort`, defaulting to
+The pinned, canaried action accepts `model` and `reasoning_effort`, defaulting to
 `gpt-6-luna` and `max`. Both sandbox execution paths use validated CLI arguments
 and `--ignore-user-config`; no connectors or interactive profiles are inherited
 from the user config. Project configuration remains subject to Codex's normal
@@ -309,19 +307,19 @@ is low/medium/high/xhigh/max. Invalid inputs fall back to the defaults.
 The managed caller now proposes central revision
 `4cabbe49c0e7a521c24c36459b572910386cb40d`, verified through the GitHub Contents
 API and merged PR #14. It includes prompt quota fallback, but still uses the
-previous action pin. It does not deploy this candidate action.
+previous action pin. It continues to use that revision’s older action pin.
 
-The previous action pin `2454440c864b485d23ae3c3a4078f0adb445c497`
-and action main `64ec9f23019340099d0f045e6fc02963fae07ea8` have divergent
-history. The three commits exclusive to the previous pin are mode inference
-and merge commits. Main retains mode inference with regression coverage; the
-candidate adds explicit model selection. Review the complete comparison rather
-than assuming a fast-forward release. Before merging the central promotion,
-merge/review the action candidate, run its exact SHA directly for auto and
-mention events, record canary run links, and update the central pin if the
-merge changes that SHA. Then validate central routing and distribute the
-resulting central SHA through operator-run consumer PRs. Do not point consumer
-callers at an unvalidated central candidate.
+The deployment audit compared previous action pin
+`2454440c864b485d23ae3c3a4078f0adb445c497` with pre-release action main
+`64ec9f23019340099d0f045e6fc02963fae07ea8`. Their histories diverged; the three
+commits exclusive to the previous pin were mode inference and merge commits.
+The reviewed release retains mode inference with regression coverage and adds
+explicit model selection. The exact merged action revision and successful
+canaries are recorded in [Canaried action promotion](#canaried-action-promotion).
+Those action-level gates are complete. After this central change merges, the
+remaining gates are central routing validation at its resulting SHA and a
+separate reviewed consumer caller-pin rollout. Do not point consumers at a
+central revision before that routing validation.
 
 ## Runner installation and removal
 
@@ -445,7 +443,7 @@ Its direct [auto and mention canaries](https://github.com/mobilint/codex-review-
 both executed Codex on `codex-reviewer-2` with model `gpt-6-luna`, reasoning
 `max`, and read-only sandboxing. Both jobs succeeded; automatic review added
 👍 to controlled PR #18 and mention review added 👍 to its source comment.
-The reviewed action suite passed 52 tests; the central suite passed 54 tests.
+The reviewed action suite passed 52 tests; the central suite passed 55 tests.
 
 This pin is eligible for central promotion; existing consumers still use their
 pinned central revisions. After merging the central change, validate automatic

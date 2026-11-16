@@ -182,3 +182,7 @@ The model-input action pin was verified by direct auto/mention canary run
 `mobilint/codex-review-action/actions/runs/43829681155` at exact action revision
 `c156f3b883e3317f0c5a5a5fa9137f7bc2c07ad1`. Keep that evidence distinct from
 subsequent central routing validation and consumer caller-pin rollout.
+
+Runner wrapper config isolation is unconditional for `exec`; deduplicate caller
+flags only before `--` and preserve positional prompt data after that marker.
+Keep legacy runner overview paragraphs consistent with the operational guide.
