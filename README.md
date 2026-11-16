@@ -90,7 +90,7 @@ updates; changing the central default branch alone does not update those callers
 
 ## Review model selection
 
-The candidate action adds `model` (default `gpt-6-luna`) and `reasoning_effort`
+The canaried action accepts `model` (default `gpt-6-luna`) and `reasoning_effort`
 (default `max`). The central workflow forwards both settings. Selection is
 explicit on the Codex CLI and appears in the job summary; interactive user
 configuration is ignored for review execution. Unsupported effort values and

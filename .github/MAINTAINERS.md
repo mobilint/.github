@@ -298,7 +298,7 @@ repository/ref and workflow path; do not derive its expected value from the call
 
 ## Model configuration and rollout status
 
-The candidate action accepts `model` and `reasoning_effort`, defaulting to
+The canaried action accepts `model` and `reasoning_effort`, defaulting to
 `gpt-6-luna` and `max`. Both sandbox execution paths use validated CLI arguments
 and `--ignore-user-config`; no connectors or interactive profiles are inherited
 from the user config. Project configuration remains subject to Codex's normal
@@ -435,15 +435,22 @@ exact registration with `gh api -X DELETE orgs/mobilint/actions/runners/ID`.
 API deletion does not stop or uninstall a local service; clean that up when
 host access becomes available.
 
-### Pending central promotion
+### Canaried action promotion
 
-The proposed action pin is `8160555183d4cea8fccb0fdeb465681513afabf8`
-from [action PR #17](https://github.com/mobilint/codex-review-action/pull/17).
-This is a candidate, not a claim of deployed or reviewed behavior. Keep this
-central PR draft until the action is reviewed/merged and the exact candidate
-passes direct auto and mention canaries. If squash/rebase changes the candidate
-SHA, update the pin and repeat the exact-SHA checks. Record the canary links in
-the central PR, then review the promotion. After merge, validate central routing
-at its resulting SHA before advancing the canonical template again or running
-consumer synchronization. The caller update in this PR targets only the already
-merged quota-fallback workflow, not this pending central candidate.
+The reusable workflow pins action commit
+`c156f3b883e3317f0c5a5a5fa9137f7bc2c07ad1`, reviewed and merged through
+[action PR #17](https://github.com/mobilint/codex-review-action/pull/17).
+The exact commit is reachable from the action repository's default branch.
+Its direct [auto and mention canaries](https://github.com/mobilint/codex-review-action/actions/runs/43829681155)
+both executed Codex on `codex-reviewer-2` with model `gpt-6-luna`, reasoning
+`max`, and read-only sandboxing. Both jobs succeeded; automatic review added
+👍 to controlled PR #18 and mention review added 👍 to its source comment.
+The reviewed action suite passed 52 tests; the central suite passed 54 tests.
+
+This pin is eligible for central promotion; existing consumers still use their
+pinned central revisions. After merging the central change, validate automatic
+and mention routing at its resulting SHA before advancing the canonical caller
+again or running consumer synchronization. The caller update included with this
+promotion targets only the already merged quota-fallback workflow, not the new
+central candidate. Record the resulting routing evidence and consumer rollout
+separately.

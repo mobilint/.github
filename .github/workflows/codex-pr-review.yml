@@ -688,8 +688,8 @@ jobs:
       - name: Run Codex review
         # Pin third-party executable code to a reviewed commit. Update this SHA
         # deliberately alongside the action contract and its test suite.
-        # Candidate from action PR #17: merge only after exact-SHA auto/mention canaries.
-        uses: mobilint/codex-review-action@8160555183d4cea8fccb0fdeb465681513afabf8
+        # Auto/mention canaries: codex-review-action/actions/runs/43829681155.
+        uses: mobilint/codex-review-action@c156f3b883e3317f0c5a5a5fa9137f7bc2c07ad1
         with:
           repo: ${{ needs.gate.outputs.repo }}
           pr_number: ${{ needs.gate.outputs.pr_number }}
