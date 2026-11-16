@@ -44,4 +44,5 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m compileall -q scripts tests
+          bash -n scripts/runner-codex
           git diff --check

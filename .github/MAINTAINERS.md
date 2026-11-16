@@ -295,3 +295,155 @@ the five-minute default, leaving headroom within the 30-minute gate timeout.
 The managed-caller regression test also locks the exact reviewed central SHA.
 Update that assertion alongside a pin promotion only after verifying the new
 repository/ref and workflow path; do not derive its expected value from the caller.
+
+## Model configuration and rollout status
+
+The candidate action accepts `model` and `reasoning_effort`, defaulting to
+`gpt-6-luna` and `max`. Both sandbox execution paths use validated CLI arguments
+and `--ignore-user-config`; no connectors or interactive profiles are inherited
+from the user config. Project configuration remains subject to Codex's normal
+trust and configuration handling. Model names are limited to 128 ASCII letters,
+digits, dots, underscores, and hyphens, starting with a letter or digit. Effort
+is low/medium/high/xhigh/max. Invalid inputs fall back to the defaults.
+
+The managed caller now proposes central revision
+`4cabbe49c0e7a521c24c36459b572910386cb40d`, verified through the GitHub Contents
+API and merged PR #14. It includes prompt quota fallback, but still uses the
+previous action pin. It does not deploy this candidate action.
+
+The previous action pin `2454440c864b485d23ae3c3a4078f0adb445c497`
+and action main `64ec9f23019340099d0f045e6fc02963fae07ea8` have divergent
+history. The three commits exclusive to the previous pin are mode inference
+and merge commits. Main retains mode inference with regression coverage; the
+candidate adds explicit model selection. Review the complete comparison rather
+than assuming a fast-forward release. Before merging the central promotion,
+merge/review the action candidate, run its exact SHA directly for auto and
+mention events, record canary run links, and update the central pin if the
+merge changes that SHA. Then validate central routing and distribute the
+resulting central SHA through operator-run consumer PRs. Do not point consumer
+callers at an unvalidated central candidate.
+
+## Runner installation and removal
+
+Use one dedicated installation and `_work` directory per runner under
+`~/codex-runners/`. The current pool is `codex-reviewer-1` through
+`codex-reviewer-5`, group `codex` (ID 3), label `codex-reviewer`. Five eligible
+jobs can execute concurrently, subject to the trust gate, per-PR concurrency,
+shared host resources, and account quota. GitHub chooses any idle matching
+runner. Production reviews must never select runner names individually.
+
+Prerequisites: Linux x64, systemd, `gh`, `git`, `jq`, `python3`, `bubblewrap`, and
+a Codex CLI supporting `exec --ignore-user-config` (tested with 0.169.0).
+Authenticate Codex as the service user with `codex login`; `codex login status`
+shows local login state. An authenticated smoke request verifies the actual
+model access. The GitHub CLI operator needs organization runner administration
+permission; OAuth tokens need `admin:org`. Keep credentials out of the repo.
+Never run registration/removal commands under `set -x`.
+
+Run from a trusted checkout of this repository as the service user. Install the
+versioned wrapper once; it preserves the Luna/max defaults for older deployed
+actions and lets newer actions override them through explicit CLI settings:
+
+```bash
+runner_root="$HOME/codex-runners"
+mkdir -p "$runner_root/bin" "$runner_root/downloads"
+# Verify this points to the real CLI, not the wrapper itself.
+"$HOME/.local/bin/codex" --version
+install -m 755 scripts/runner-codex "$runner_root/bin/codex"
+```
+
+The wrapper expects the actual CLI at `~/.local/bin/codex`. If it is installed
+elsewhere, set `CODEX_REAL_BIN` in each installation's `.env` to its absolute
+path. Never point that setting back to the wrapper. Services run as this user
+and share its Codex authentication. Interactive Codex configuration is unchanged.
+
+Download and verify a runner release (or reuse an already verified archive):
+
+```bash
+release=$(gh api repos/actions/runner/releases/latest)
+asset=$(jq -ce '[.assets[] | select(.name | test("^actions-runner-linux-x64-[0-9.]+[.]tar[.]gz$"))] | if length == 1 then .[0] else error("expected one Linux x64 archive") end' <<< "$release")
+archive="$runner_root/downloads/$(jq -r .name <<< "$asset")"
+digest=$(jq -er '.digest | select(startswith("sha256:")) | ltrimstr("sha256:")' <<< "$asset")
+curl -fL "$(jq -r .browser_download_url <<< "$asset")" -o "$archive"
+printf '%s  %s\n' "$digest" "$archive" | sha256sum -c -
+```
+
+Add a runner using an unused name and directory. `mkdir` intentionally fails if
+the installation already exists. Do not copy `.runner` or `.credentials` from
+another runner and do not use `--replace` during routine expansion:
+
+```bash
+runner_name=codex-reviewer-6
+runner_dir="$runner_root/$runner_name"
+mkdir "$runner_dir"
+tar xzf "$archive" -C "$runner_dir"
+cd "$runner_dir"
+runner_token=$(gh api -X POST orgs/mobilint/actions/runners/registration-token --jq .token)
+./config.sh --unattended --url https://github.com/mobilint \
+  --token "$runner_token" --runnergroup codex --name "$runner_name" \
+  --labels codex-reviewer --work _work
+unset runner_token
+printf '%s' "$runner_root/bin:$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" > .path
+sudo ./svc.sh install "$(id -un)"
+sudo ./svc.sh start
+systemctl is-enabled "actions.runner.mobilint.$runner_name.service"
+systemctl is-active "actions.runner.mobilint.$runner_name.service"
+gh api orgs/mobilint/actions/runner-groups/3/runners \
+  --jq '.runners[] | {id,name,status,busy,labels}'
+PATH="$runner_root/bin:$PATH" codex sandbox sh -lc true
+```
+
+Expect the exact name online, with the `codex-reviewer` label and a boot-enabled
+service. No server reboot or workflow edit is needed. Use `journalctl -u
+"actions.runner.mobilint.$runner_name.service"` for service logs, and `sudo
+systemctl restart "actions.runner.mobilint.$runner_name.service"` after changes
+that require restarting a service. Let an active review finish before restart.
+
+Run **Check reviewer runner pool** from the repository's default branch. Select
+1–5 slots (default 5); optionally enable **authenticated_smoke** to make a small
+Luna/max request on each selected runner. This uses account quota. Compare job
+runner names and overlapping timestamps: five completed jobs alone do not prove
+five distinct runners, since a busy pool can reuse runners. Both planning and
+self-hosted allocation reject non-default branches and other repositories.
+Readiness validates required tools and sandbox startup; the optional request
+also validates authentication/model access without publishing a review.
+
+For removal, first pause new review submissions and wait until the exact runner
+shows `busy: false`. An idle check alone cannot prevent an assignment racing
+with service shutdown. Never stop a busy runner during routine removal:
+
+```bash
+runner_name=codex-reviewer-5
+runner_root="$HOME/codex-runners"
+gh api orgs/mobilint/actions/runner-groups/3/runners \
+  --jq '.runners[] | {id,name,status,busy}'
+cd "$runner_root/$runner_name"
+sudo ./svc.sh stop
+sudo ./svc.sh uninstall
+runner_token=$(gh api -X POST orgs/mobilint/actions/runners/remove-token --jq .token)
+./config.sh remove --token "$runner_token"
+unset runner_token
+gh api orgs/mobilint/actions/runner-groups/3/runners \
+  --jq '.runners[] | {id,name,status,busy}'
+```
+
+Confirm the runner disappears from GitHub and its service is uninstalled. Its
+local work directory remains; archive or delete that exact installation only
+after checking that no service or job uses it. Keep `bin/` and all other runner
+installations. If a host is permanently unavailable, an admin may delete the
+exact registration with `gh api -X DELETE orgs/mobilint/actions/runners/ID`.
+API deletion does not stop or uninstall a local service; clean that up when
+host access becomes available.
+
+### Pending central promotion
+
+The proposed action pin is `8160555183d4cea8fccb0fdeb465681513afabf8`
+from [action PR #17](https://github.com/mobilint/codex-review-action/pull/17).
+This is a candidate, not a claim of deployed or reviewed behavior. Keep this
+central PR draft until the action is reviewed/merged and the exact candidate
+passes direct auto and mention canaries. If squash/rebase changes the candidate
+SHA, update the pin and repeat the exact-SHA checks. Record the canary links in
+the central PR, then review the promotion. After merge, validate central routing
+at its resulting SHA before advancing the canonical template again or running
+consumer synchronization. The caller update in this PR targets only the already
+merged quota-fallback workflow, not this pending central candidate.

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Install as ~/codex-runners/bin/codex; keep the actual CLI elsewhere.
+set -euo pipefail
+real_codex="${CODEX_REAL_BIN:-$HOME/.local/bin/codex}"
+if [[ "${1:-}" == exec ]]; then
+  shift
+  defaults=(-c 'model="gpt-6-luna"' -c 'model_reasoning_effort="max"')
+  # New actions supply this flag themselves; older actions need the wrapper.
+  ignore_config=(--ignore-user-config)
+  for argument in "$@"; do
+    if [[ "$argument" == --ignore-user-config ]]; then
+      ignore_config=()
+      break
+    fi
+  done
+  exec "$real_codex" exec "${ignore_config[@]}" "${defaults[@]}" "$@"
+fi
+exec "$real_codex" "$@"

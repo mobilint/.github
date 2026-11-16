@@ -29,6 +29,7 @@ content. Preserve these exact links and run the guide validation before finishin
 - `config/codex-review-action-contract.json`: expected public action input
   contract.
 - `scripts/sync_code_review_callers.py`: idempotent pull-request synchronizer.
+- `scripts/runner-codex`: installable runner wrapper with overridable Luna/max defaults.
 - `tests/`: offline caller, contract, API-failure, and idempotency tests.
 - `.github/workflows/update-clone-badge.yml`: clone badge publisher that writes
   generated data to the orphan `badges` branch.
@@ -235,3 +236,16 @@ Check SHA provenance through GitHub; a 40-hex syntax test alone cannot prove it.
 The managed-caller regression test also locks the exact reviewed central SHA.
 Update that assertion alongside a pin promotion only after verifying the new
 repository/ref and workflow path; do not derive its expected value from the caller.
+
+## Explicit review model configuration
+
+The action accepts `model` (default `gpt-6-luna`) and `reasoning_effort`
+(default `max`). Keep the composite env handoff, both contract fixtures, central
+workflow inputs, and CLI arguments synchronized. Model names must be bounded
+ASCII identifiers; effort must be one of low/medium/high/xhigh/max. Invalid
+values use the documented defaults. CLI selection ignores interactive user
+configuration. Log the selection in the job summary without credentials.
+The runner wrapper must allow explicit action options to override its defaults.
+Keep candidate settings separate from deployed settings until reviewed canary
+and SHA promotion complete. The pool probe supports 1–5 slots and an optional
+quota-consuming authenticated smoke check; it remains default-branch-only.

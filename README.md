@@ -87,3 +87,17 @@ the five-minute default, leaving headroom within the 30-minute gate timeout.
 Managed callers pin the central review workflow to a reviewed full commit SHA.
 Workflow updates and rollbacks reach consumers through reviewed caller pin
 updates; changing the central default branch alone does not update those callers.
+
+## Review model selection
+
+The candidate action adds `model` (default `gpt-6-luna`) and `reasoning_effort`
+(default `max`). The central workflow forwards both settings. Selection is
+explicit on the Codex CLI and appears in the job summary; interactive user
+configuration is ignored for review execution. Unsupported effort values and
+invalid model identifiers fall back to the defaults. A valid identifier still
+requires a model available to the authenticated account.
+
+These changes take effect for consumers only after the action canary, central
+SHA promotion, and caller-pin rollout described in the maintainer guide.
+Runner installation and add/remove procedures are maintained in
+[`mobilint/.github`'s maintainer guide](https://github.com/mobilint/.github/blob/main/.github/MAINTAINERS.md#runner-installation-and-removal).
