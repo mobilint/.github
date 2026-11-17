@@ -94,9 +94,9 @@ class ManagedCallerTests(unittest.TestCase):
         )
 
     def test_managed_caller_uses_reviewed_central_commit(self) -> None:
-        # Verified in mobilint/.github: merged PR #12 contains the reusable
+        # Verified in mobilint/.github: merged PR #15 contains the reusable
         # workflow. Update only after verifying a new reviewed revision there.
-        reviewed_sha = "28642ba1d8df2f8ff63f19113b06186191527d8f"
+        reviewed_sha = "17c7413b49c0aa056965bd03850685bb1e59a1b8"
         text = CANONICAL.read_text(encoding="utf-8")
         refs = re.findall(
             r"(?m)^    uses: mobilint/\.github/\.github/workflows/"

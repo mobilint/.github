@@ -228,35 +228,36 @@ symlinks. The regression tests cover valid links and hostile alternatives.
 ## Multiple review runners
 
 Register each runner under a distinct name in group `codex`, with custom label
-`codex-reviewer`. Use separate installation and `_work` directories (on this
-server: `~/actions-runner` and `~/actions-runner-2`) and keep both services online.
-Each service user needs the tools listed in the action README, Codex credentials,
-and a working read-only sandbox. Shared-host runners share machine capacity;
-adding services does not add CPU or memory. The deployed action at `2454440`
-already creates a unique directory with `mktemp -d` under `TMPDIR` or `/tmp`
-and cleans up only its own directory. The candidate in codex-review-action PR #12
-adds preference for `RUNNER_TEMP`; that behavior is not deployed until its
-approval, direct-action canary, and a separate reviewed central pin update.
-No custom dispatcher or runner-name binding is needed.
+`codex-reviewer`. The current deployment has
+`~/codex-runners/codex-reviewer-1` through `codex-reviewer-5`; these are inventory
+examples, not a fixed pool size. Add or remove registrations as capacity needs
+change, keeping a separate installation and `_work` directory for every service. Each service user needs
+the tools listed in the action README, Codex credentials, and a working
+read-only sandbox. Shared-host runners share CPU, memory, and account quota.
+The pinned action creates a unique review directory under `RUNNER_TEMP` when
+available and cleans up only its own directory. No custom dispatcher or
+runner-name binding is needed. See [Runner installation and removal](#runner-installation-and-removal)
+for the portable setup and service procedures.
 
-An organization administrator should verify both registrations are online with
+An organization administrator should verify all registrations are online with
 the matching label, and that group `codex` permits each consuming repository
 (and its reusable workflow if workflow restrictions are enabled). Listing these
 settings through the REST API requires organization runner administration access;
 ordinary repository access is insufficient.
 
-After the central workflow is merged to the default branch, manually dispatch
-`Check reviewer runner pool` in `mobilint/.github` on the default branch. A job
-guard skips other repositories and refs before runner allocation; workflow
-concurrency serializes probe batches so repeated dispatches cannot run extra
-batches alongside the active probe. Organization runner-group access restrictions
-remain the administrator-controlled trust boundary for workflow execution.
-It runs two independent jobs
-with `max-parallel: 2`, no checkout and no write permissions. Each checks tools and
-sandbox startup and stays occupied for 20 seconds. When both runners are idle,
-verify distinct runner names and overlapping execution intervals in the two job
-logs. A serial run alone does not prove failure: a runner may have been busy or
-offline. This smoke check does not authenticate a model request or publish a review.
+Dispatch `Check reviewer runner pool` on this repository's default branch. Both
+planning and self-hosted jobs reject other repositories and refs before runner
+allocation; workflow concurrency serializes probe batches. Request a positive whole number of slots
+(default 5, matching the current deployment example). The hosted planner
+validates the count and uses it for both the matrix size and `max-parallel`. Each job checks tools and sandbox startup,
+records
+its runner and CLI version, and holds capacity for 20 seconds. With the pool
+idle, compare distinct runner names and overlapping execution intervals; jobs
+may otherwise reuse runners or wait for capacity. The optional
+`authenticated_smoke` input makes a real Luna/max request on each selected
+runner, using account quota without publishing a review. Tool/sandbox checks
+alone do not authenticate a model request. Organization runner-group access
+restrictions remain the administrator-controlled workflow trust boundary.
 
 GitHub schedules eligible jobs, not jobs still waiting at the hosted gate or
 blocked by concurrency. Automatic reviews remain latest-update-wins per PR;
@@ -295,3 +296,181 @@ the five-minute default, leaving headroom within the 30-minute gate timeout.
 The managed-caller regression test also locks the exact reviewed central SHA.
 Update that assertion alongside a pin promotion only after verifying the new
 repository/ref and workflow path; do not derive its expected value from the caller.
+
+## Model configuration and rollout status
+
+The pinned, canaried action accepts `model` and `reasoning_effort`, defaulting to
+`gpt-6-luna` and `max`. Both sandbox execution paths use validated CLI arguments
+and `--ignore-user-config`; no connectors or interactive profiles are inherited
+from the user config. Project configuration remains subject to Codex's normal
+trust and configuration handling. Model names are limited to 128 ASCII letters,
+digits, dots, underscores, and hyphens, starting with a letter or digit. Effort
+is low/medium/high/xhigh/max. Invalid inputs fall back to the defaults.
+
+The canonical caller pins reviewed central revision
+`17c7413b49c0aa056965bd03850685bb1e59a1b8` from merged PR #15. Its workflow
+path and SHA were verified through GitHub. The exact revision passed both
+[automatic fallback routing](https://github.com/mobilint/codex-review-action/actions/runs/43832639608)
+and [mention routing](https://github.com/mobilint/codex-review-action/actions/runs/43833750345).
+The automatic run waited for the official reviewer before falling back; the
+mention run used a real pull-request-review event. Both invoked the pinned
+action with Luna/max and read-only sandboxing on `codex-reviewer-4`, and both
+delivered clean reactions. Existing consumers adopt these settings only when
+their caller-pin PRs merge.
+
+The deployment audit compared previous action pin
+`2454440c864b485d23ae3c3a4078f0adb445c497` with pre-release action main
+`64ec9f23019340099d0f045e6fc02963fae07ea8`. Their histories diverged; the three
+commits exclusive to the previous pin were mode inference and merge commits.
+The reviewed release retains mode inference with regression coverage and adds
+explicit model selection. The exact merged action revision and successful
+canaries are recorded in [Canaried action promotion](#canaried-action-promotion).
+The action-level and exact central routing gates are complete. The remaining
+step for other consumers is a separate reviewed caller-pin rollout. Future
+central code changes still require exact-SHA routing validation before caller
+promotion; the numeric pool-probe change does not alter this reusable workflow.
+
+## Runner installation and removal
+
+Use one dedicated installation and `_work` directory per runner under
+`~/codex-runners/`. The current inventory is `codex-reviewer-1` through
+`codex-reviewer-5`, group `codex` (ID 3), label `codex-reviewer`. This inventory
+can grow or shrink. Eligible reviews can execute concurrently up to the number
+of available matching runners, subject to the trust gate, per-PR concurrency,
+shared host resources, and account quota. GitHub chooses any idle matching
+runner. Production reviews must never select runner names individually.
+
+Prerequisites: Linux x64, systemd, `gh`, `git`, `jq`, `python3`, `bubblewrap`, and
+a Codex CLI supporting `exec --ignore-user-config` (tested with 0.169.0).
+Authenticate Codex as the service user with `codex login`; `codex login status`
+shows local login state. An authenticated smoke request verifies the actual
+model access. The GitHub CLI operator needs organization runner administration
+permission; OAuth tokens need `admin:org`. Keep credentials out of the repo.
+Never run registration/removal commands under `set -x`.
+
+Run from a trusted checkout of this repository as the service user. Install the
+versioned wrapper once; it preserves the Luna/max defaults for older deployed
+actions and lets newer actions override them through explicit CLI settings:
+
+```bash
+runner_root="$HOME/codex-runners"
+mkdir -p "$runner_root/bin" "$runner_root/downloads"
+# Verify this points to the real CLI, not the wrapper itself.
+"$HOME/.local/bin/codex" --version
+install -m 755 scripts/runner-codex "$runner_root/bin/codex"
+```
+
+The wrapper expects the actual CLI at `~/.local/bin/codex`. If it is installed
+elsewhere, set `CODEX_REAL_BIN` in each installation's `.env` to its absolute
+path. Never point that setting back to the wrapper. Services run as this user
+and share its Codex authentication. Interactive Codex configuration is unchanged.
+
+Download and verify a runner release (or reuse an already verified archive):
+
+```bash
+release=$(gh api repos/actions/runner/releases/latest)
+asset=$(jq -ce '[.assets[] | select(.name | test("^actions-runner-linux-x64-[0-9.]+[.]tar[.]gz$"))] | if length == 1 then .[0] else error("expected one Linux x64 archive") end' <<< "$release")
+archive="$runner_root/downloads/$(jq -r .name <<< "$asset")"
+digest=$(jq -er '.digest | select(startswith("sha256:")) | ltrimstr("sha256:")' <<< "$asset")
+curl -fL "$(jq -r .browser_download_url <<< "$asset")" -o "$archive"
+printf '%s  %s\n' "$digest" "$archive" | sha256sum -c -
+```
+
+Add a runner using an unused name and directory. `mkdir` intentionally fails if
+the installation already exists. Do not copy `.runner` or `.credentials` from
+another runner and do not use `--replace` during routine expansion:
+
+```bash
+registered_names=$(gh api --paginate 'orgs/mobilint/actions/runner-groups/3/runners?per_page=100' --jq '.runners[].name')
+runner_index=1
+while [[ -e "$runner_root/codex-reviewer-$runner_index" ]] || grep -Fxq "codex-reviewer-$runner_index" <<< "$registered_names"; do
+  ((runner_index += 1))
+done
+runner_name="codex-reviewer-$runner_index"
+runner_dir="$runner_root/$runner_name"
+mkdir "$runner_dir"
+tar xzf "$archive" -C "$runner_dir"
+cd "$runner_dir"
+runner_token=$(gh api -X POST orgs/mobilint/actions/runners/registration-token --jq .token)
+./config.sh --unattended --url https://github.com/mobilint \
+  --token "$runner_token" --runnergroup codex --name "$runner_name" \
+  --labels codex-reviewer --work _work
+unset runner_token
+printf '%s' "$runner_root/bin:$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" > .path
+sudo ./svc.sh install "$(id -un)"
+sudo ./svc.sh start
+systemctl is-enabled "actions.runner.mobilint.$runner_name.service"
+systemctl is-active "actions.runner.mobilint.$runner_name.service"
+gh api orgs/mobilint/actions/runner-groups/3/runners \
+  --jq '.runners[] | {id,name,status,busy,labels}'
+PATH="$runner_root/bin:$PATH" codex sandbox sh -lc true
+```
+
+Expect the exact name online, with the `codex-reviewer` label and a boot-enabled
+service. No server reboot or workflow edit is needed. Use `journalctl -u
+"actions.runner.mobilint.$runner_name.service"` for service logs, and `sudo
+systemctl restart "actions.runner.mobilint.$runner_name.service"` after changes
+that require restarting a service. Let an active review finish before restart.
+
+Run **Check reviewer runner pool** from the repository's default branch. Select
+a positive whole number of slots (default 5, the current deployment example);
+optionally enable **authenticated_smoke** to make a small
+Luna/max request on each selected runner. This uses account quota. Compare job
+runner names and overlapping timestamps: completion of the requested jobs alone
+does not prove that many distinct runners, since a busy pool can reuse runners. Both planning and
+self-hosted allocation reject non-default branches and other repositories.
+The request is bounded to 1–256 jobs by GitHub's
+[matrix job limit](https://docs.github.com/en/actions/reference/limits), not by a
+fixed runner-pool capacity. Choose the count to match the capacity you intend to
+check; a request above the idle pool size may queue and reuse runners. Increase
+or reduce the request when registrations change; no production routing change
+is needed. Readiness validates required tools and sandbox startup; the optional request
+also validates authentication/model access without publishing a review.
+
+For removal, first pause new review submissions and wait until the exact runner
+shows `busy: false`. An idle check alone cannot prevent an assignment racing
+with service shutdown. Never stop a busy runner during routine removal:
+
+```bash
+runner_name=codex-reviewer-5
+runner_root="$HOME/codex-runners"
+gh api orgs/mobilint/actions/runner-groups/3/runners \
+  --jq '.runners[] | {id,name,status,busy}'
+cd "$runner_root/$runner_name"
+sudo ./svc.sh stop
+sudo ./svc.sh uninstall
+runner_token=$(gh api -X POST orgs/mobilint/actions/runners/remove-token --jq .token)
+./config.sh remove --token "$runner_token"
+unset runner_token
+gh api orgs/mobilint/actions/runner-groups/3/runners \
+  --jq '.runners[] | {id,name,status,busy}'
+```
+
+Confirm the runner disappears from GitHub and its service is uninstalled. Its
+local work directory remains; archive or delete that exact installation only
+after checking that no service or job uses it. Keep `bin/` and all other runner
+installations. If a host is permanently unavailable, an admin may delete the
+exact registration with `gh api -X DELETE orgs/mobilint/actions/runners/ID`.
+API deletion does not stop or uninstall a local service; clean that up when
+host access becomes available.
+
+### Canaried action promotion
+
+The reusable workflow pins action commit
+`c156f3b883e3317f0c5a5a5fa9137f7bc2c07ad1`, reviewed and merged through
+[action PR #17](https://github.com/mobilint/codex-review-action/pull/17).
+The exact commit is reachable from the action repository's default branch.
+Its direct [auto and mention canaries](https://github.com/mobilint/codex-review-action/actions/runs/43829681155)
+both executed Codex on `codex-reviewer-2` with model `gpt-6-luna`, reasoning
+`max`, and read-only sandboxing. Both jobs succeeded; automatic review added
+👍 to controlled PR #18 and mention review added 👍 to its source comment.
+The reviewed action suite passed 52 tests; the central promotion suite passed
+55 tests. The flexible planner adds real-workflow boundary coverage.
+
+This action pin is deployed by central revision
+`17c7413b49c0aa056965bd03850685bb1e59a1b8`. Its automatic and mention routing
+checks are linked in [Model configuration and rollout status](#model-configuration-and-rollout-status).
+The canonical caller targets that verified revision. Other consumers remain on
+their own pinned revisions until their reviewed caller updates merge. The
+flexible pool probe is a separate manual workflow; expanding or shrinking the
+runner pool does not require a new production review-workflow pin.

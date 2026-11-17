@@ -57,9 +57,9 @@ and `.agents/skills`; `CLAUDE.md` and `.claude/skills` use those same files.
 ## Multiple review runners
 
 The central workflow targets runner group `codex` and label `codex-reviewer`.
-GitHub assigns eligible queued jobs to any idle matching runner. Two registered,
-online runners can execute two reviews at once; additional eligible jobs wait
-for capacity. This does not bypass the trust gate or per-PR concurrency policy.
+GitHub assigns eligible queued jobs to any idle matching runner. Each online matching runner can execute one review at a time; additional
+eligible jobs wait for capacity. Add or remove registrations to grow or shrink
+the pool without changing production routing. This does not bypass the trust gate or per-PR concurrency policy.
 See the maintainer guide for setup and the manual pool check.
 
 ## Official connector quota fallback
@@ -87,3 +87,27 @@ the five-minute default, leaving headroom within the 30-minute gate timeout.
 Managed callers pin the central review workflow to a reviewed full commit SHA.
 Workflow updates and rollbacks reach consumers through reviewed caller pin
 updates; changing the central default branch alone does not update those callers.
+
+## Review model selection
+
+The canaried action accepts `model` (default `gpt-6-luna`) and `reasoning_effort`
+(default `max`). The central workflow forwards both settings. Selection is
+explicit on the Codex CLI and appears in the job summary; interactive user
+configuration is ignored for review execution. Unsupported effort values and
+invalid model identifiers fall back to the defaults. A valid identifier still
+requires a model available to the authenticated account.
+
+These changes take effect for consumers only after the action canary, central
+SHA promotion, and caller-pin rollout described in the maintainer guide.
+Runner installation and add/remove procedures are maintained in
+[`mobilint/.github`'s maintainer guide](https://github.com/mobilint/.github/blob/main/.github/MAINTAINERS.md#runner-installation-and-removal).
+
+## Flexible runner capacity checks
+
+The runner pool can grow or shrink without changing production review routing.
+The manual pool probe accepts a positive whole-number job count; its default
+of 5 is the current deployment example. It uses the validated count for both
+matrix size and parallelism, within GitHub's platform limit of 256 matrix jobs.
+Select the capacity you want to check and compare distinct runner identities;
+queued jobs can reuse runners when the pool is smaller or busy. The optional
+authenticated Luna/max smoke check remains available for every selected job.

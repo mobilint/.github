@@ -18,6 +18,16 @@ on:
         required: false
         type: boolean
         default: true
+      model:
+        description: Codex review model
+        required: false
+        type: string
+        default: gpt-6-luna
+      reasoning_effort:
+        description: Codex reasoning effort
+        required: false
+        type: string
+        default: max
       max_files:
         description: Soft limit for changed files passed to the review runner
         required: false
@@ -678,7 +688,8 @@ jobs:
       - name: Run Codex review
         # Pin third-party executable code to a reviewed commit. Update this SHA
         # deliberately alongside the action contract and its test suite.
-        uses: mobilint/codex-review-action@2454440c864b485d23ae3c3a4078f0adb445c497
+        # Auto/mention canaries: codex-review-action/actions/runs/43829681155.
+        uses: mobilint/codex-review-action@c156f3b883e3317f0c5a5a5fa9137f7bc2c07ad1
         with:
           repo: ${{ needs.gate.outputs.repo }}
           pr_number: ${{ needs.gate.outputs.pr_number }}
@@ -690,6 +701,8 @@ jobs:
           ack_reaction_target: ${{ needs.gate.outputs.ack_reaction_target }}
           max_files: ${{ inputs.max_files }}
           max_diff_chars: ${{ inputs.max_diff_chars }}
+          model: ${{ inputs.model }}
+          reasoning_effort: ${{ inputs.reasoning_effort }}
           sandbox_mode: read-only
           allow_unsafe_no_sandbox_fallback: false
 
